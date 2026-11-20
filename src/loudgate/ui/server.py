@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import ipaddress
 import json
 import os
 import re
 import shutil
+import subprocess
+import sys
 import tempfile
 import threading
 import uuid
@@ -165,8 +168,61 @@ def _sanitize_filename(name: str, fallback: str = "audio.wav") -> str:
     return cleaned or fallback
 
 
+def compute_spectrogram(
+    mono: np.ndarray,
+    fs: int,
+    cols: int = 240,
+    rows: int = 64,
+) -> dict[str, Any]:
+    """Compute log-frequency STFT power spectrogram quantized to base64 uint8."""
+    f_min = 40.0
+    f_max = min(20000.0, 0.49 * fs)
+    if len(mono) < 64 or f_max <= f_min:
+        return {"cols": 0, "rows": 0, "f_min_hz": f_min, "f_max_hz": f_max, "data_b64": ""}
+
+    x = mono - np.mean(mono)
+    n_fft = 1024 if len(x) >= 1024 else 256
+    hop = max(64, n_fft // 4)
+    win = signal.windows.hann(n_fft, sym=False)
+    stft_obj = signal.ShortTimeFFT(win=win, hop=hop, fs=fs, mfft=n_fft)
+    spec = np.abs(stft_obj.stft(x)) ** 2  # shape: (n_freqs, n_frames)
+    freqs = stft_obj.f
+
+    # Map linear FFT bins onto logarithmic frequency rows (high freq at row 0 -> low at bottom).
+    band_edges = np.geomspace(f_min, f_max, rows + 1)
+    band_spec = np.zeros((rows, spec.shape[1]), dtype=np.float64)
+    for r in range(rows):
+        mask = (freqs >= band_edges[r]) & (freqs <= band_edges[r + 1])
+        if not np.any(mask):
+            nearest = int(np.argmin(np.abs(freqs - 0.5 * (band_edges[r] + band_edges[r + 1]))))
+            band_spec[rows - 1 - r, :] = spec[nearest, :]
+        else:
+            band_spec[rows - 1 - r, :] = np.max(spec[mask, :], axis=0)
+
+    # Downsample time frames to cols using max-pooling so transients/clicks remain visible.
+    n_frames = band_spec.shape[1]
+    out_cols = min(cols, max(1, n_frames))
+    frame_edges = np.linspace(0, n_frames, out_cols + 1, dtype=np.int64)
+    pooled = np.zeros((rows, out_cols), dtype=np.float64)
+    for c in range(out_cols):
+        sl = band_spec[:, frame_edges[c] : max(frame_edges[c] + 1, frame_edges[c + 1])]
+        pooled[:, c] = np.max(sl, axis=1)
+
+    db = 10.0 * np.log10(np.maximum(pooled, 1e-12))
+    norm = np.clip((db - (-85.0)) / 80.0, 0.0, 1.0)
+    quantized = np.round(norm * 255.0).astype(np.uint8)
+    b64 = base64.b64encode(quantized.tobytes()).decode("ascii")
+    return {
+        "cols": int(out_cols),
+        "rows": int(rows),
+        "f_min_hz": float(f_min),
+        "f_max_hz": float(f_max),
+        "data_b64": b64,
+    }
+
+
 def compute_waveform_peaks(audio: AudioBuffer, target_bins: int = 800) -> dict[str, Any]:
-    """Downsample mono waveform into min/max/RMS envelope buckets for Canvas rendering."""
+    """Downsample mono waveform and STFT spectrogram into compact Canvas payloads."""
     mono = audio.to_mono()
     n = len(mono)
     if n == 0:
@@ -178,6 +234,7 @@ def compute_waveform_peaks(audio: AudioBuffer, target_bins: int = 800) -> dict[s
             "mins": [],
             "maxs": [],
             "rms": [],
+            "spectrogram": {"cols": 0, "rows": 0, "f_min_hz": 40.0, "f_max_hz": 20000.0, "data_b64": ""},
         }
 
     bins = min(max(1, target_bins), n)
@@ -205,6 +262,7 @@ def compute_waveform_peaks(audio: AudioBuffer, target_bins: int = 800) -> dict[s
         "mins": mins,
         "maxs": maxs,
         "rms": rms,
+        "spectrogram": compute_spectrogram(mono, audio.sample_rate),
     }
 
 
@@ -1123,11 +1181,89 @@ def create_server(
     return StudioHTTPServer((safe_host, port), session)
 
 
+def find_desktop_browser() -> str | None:
+    """Locate an installed Edge or Chrome binary supporting standalone --app windows."""
+    candidates: list[str] = []
+    for name in ("msedge", "microsoft-edge", "chrome", "google-chrome", "chromium", "chromium-browser"):
+        resolved = shutil.which(name)
+        if resolved:
+            candidates.append(resolved)
+
+    if sys.platform == "win32":
+        program_dirs = [
+            os.environ.get("PROGRAMFILES", r"C:\Program Files"),
+            os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"),
+            os.environ.get("LOCALAPPDATA", ""),
+        ]
+        for base in program_dirs:
+            if not base:
+                continue
+            candidates.extend(
+                [
+                    os.path.join(base, "Microsoft", "Edge", "Application", "msedge.exe"),
+                    os.path.join(base, "Google", "Chrome", "Application", "chrome.exe"),
+                ]
+            )
+    elif sys.platform == "darwin":
+        candidates.extend(
+            [
+                "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            ]
+        )
+
+    for path in candidates:
+        if path and os.path.isfile(path):
+            return path
+    return None
+
+
+def _launch_desktop_window(url: str, server: StudioHTTPServer) -> None:
+    """Open standalone desktop app window via pywebview or Chromium --app fallback."""
+    try:
+        import webview  # type: ignore[import-not-found]
+    except ImportError:
+        webview = None
+
+    if webview is not None:
+        srv_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        srv_thread.start()
+        try:
+            webview.create_window("loudgate Studio", url, width=1440, height=900, min_size=(390, 720))
+            webview.start()
+        finally:
+            server.shutdown()
+        return
+
+    browser_bin = find_desktop_browser()
+    if browser_bin:
+        app_profile = server.session.session_dir / "app_profile"
+        app_profile.mkdir(parents=True, exist_ok=True)
+        subprocess.Popen(
+            [
+                browser_bin,
+                f"--app={url}",
+                "--window-size=1440,900",
+                f"--user-data-dir={app_profile}",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    else:
+        threading.Timer(0.25, lambda: webbrowser.open(url)).start()
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+
+
 def serve_ui(
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
     workspace_dir: str | Path = ".",
     open_browser: bool = True,
+    desktop: bool = False,
 ) -> None:
     """Start the local loudgate studio GUI server and block until interrupted."""
     server = create_server(host=host, port=port, workspace_dir=workspace_dir)
@@ -1135,9 +1271,12 @@ def serve_ui(
     url = f"http://{bound_host}:{bound_port}/"
     print(f"loudgate Studio UI running at {url} (workspace: {server.session.workspace_dir})")
     print("Press Ctrl+C to stop.")
-    if open_browser:
-        threading.Timer(0.25, lambda: webbrowser.open(url)).start()
     try:
+        if desktop:
+            _launch_desktop_window(url, server)
+            return
+        if open_browser:
+            threading.Timer(0.25, lambda: webbrowser.open(url)).start()
         server.serve_forever()
     except KeyboardInterrupt:
         pass
@@ -1155,6 +1294,11 @@ def build_ui_parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="Bind port (default: 8742; use 0 for auto).")
     parser.add_argument("--workspace-dir", default=".", help="Workspace directory confined for local audio selection.")
     parser.add_argument("--no-open", action="store_true", help="Do not automatically open the browser.")
+    parser.add_argument(
+        "--desktop",
+        action="store_true",
+        help="Launch in standalone desktop app window mode (pywebview or Edge/Chrome --app).",
+    )
     return parser
 
 
@@ -1168,6 +1312,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             port=args.port,
             workspace_dir=args.workspace_dir,
             open_browser=not args.no_open,
+            desktop=args.desktop,
         )
     except ValueError as exc:
         parser.error(str(exc))

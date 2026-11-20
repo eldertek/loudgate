@@ -1,8 +1,12 @@
+import { StudioEngine } from "./engine.js";
 import { t } from "./i18n.js";
 import { WaveformRenderer } from "./waveform.js";
 
 const STORAGE_LANG_KEY = "loudgate_ui_lang";
 const STORAGE_TAB_KEY = "loudgate_ui_tab";
+const LED_SEGMENTS = 26;
+
+const engine = new StudioEngine();
 
 const state = {
   lang: localStorage.getItem(STORAGE_LANG_KEY) === "fr" ? "fr" : "en",
@@ -13,7 +17,9 @@ const state = {
   cleanResult: null,
   masterResult: null,
   cutResult: null,
-  auditionSlot: "A", // "A" = original source, "B" = processed output for active tab
+  auditionSlot: "A",
+  looping: false,
+  fps: 25,
 };
 
 const el = (id) => document.getElementById(id);
@@ -30,11 +36,21 @@ function fmtNum(val, digits = 2, suffix = "") {
   return `${Number(val).toFixed(digits)}${suffix}`;
 }
 
-function fmtTime(seconds) {
+function fmtSmpte(seconds, fps = 25) {
   const s = Math.max(0, Number(seconds) || 0);
-  const mins = Math.floor(s / 60);
-  const rem = s - mins * 60;
-  return `${String(mins).padStart(2, "0")}:${rem.toFixed(2).padStart(5, "0")}`;
+  const totalFrames = Math.floor(s * fps);
+  const fpsInt = Math.max(1, Math.round(fps));
+  const ff = totalFrames % fpsInt;
+  const totalSec = Math.floor(totalFrames / fpsInt);
+  const ss = totalSec % 60;
+  const mm = Math.floor(totalSec / 60) % 60;
+  const hh = Math.floor(totalSec / 3600);
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}:${String(ff).padStart(2, "0")}`;
+}
+
+function fmtTimeMs(seconds) {
+  const s = Math.max(0, Number(seconds) || 0);
+  return `${s.toFixed(3).padStart(6, "0")}s`;
 }
 
 function showAlert(title, message) {
@@ -51,12 +67,12 @@ function clearAlert() {
 function setBusy(busy, messageKey = "") {
   const toast = el("status-toast");
   if (busy) {
-    el("status-toast-text").textContent = t(state.lang, messageKey) || "Working...";
+    el("status-toast-text").textContent = t(state.lang, messageKey) || "Processing...";
     toast.classList.remove("hidden");
   } else {
     toast.classList.add("hidden");
   }
-  const actionIds = [
+  const ids = [
     "btn-load-sample",
     "btn-load-workspace",
     "btn-run-probe",
@@ -64,7 +80,7 @@ function setBusy(busy, messageKey = "") {
     "btn-run-master",
     "btn-run-cut",
   ];
-  for (const id of actionIds) {
+  for (const id of ids) {
     const btn = el(id);
     if (btn) {
       btn.disabled = busy || (!state.activeSource && id.startsWith("btn-run-"));
@@ -72,26 +88,115 @@ function setBusy(busy, messageKey = "") {
   }
 }
 
-async function apiJson(url, options = {}) {
-  const resp = await fetch(url, options);
-  let data = null;
+// Live WebAudio Meter Bridge state
+const meterAudio = {
+  ctx: null,
+  analyser: null,
+  sourceNode: null,
+  buf: null,
+  rafId: 0,
+  shortTermBuf: [],
+};
+
+function buildLedColumns() {
+  for (const colId of ["led-col-m", "led-col-s", "led-col-i", "led-col-tp"]) {
+    const col = el(colId);
+    const segs = [];
+    for (let i = 0; i < LED_SEGMENTS; i++) {
+      const seg = createNode("div", "led-seg");
+      const ratio = i / (LED_SEGMENTS - 1);
+      if (ratio >= 0.91) seg.dataset.zone = "red";
+      else if (ratio >= 0.72) seg.dataset.zone = "amber";
+      else seg.dataset.zone = "green";
+      segs.push(seg);
+    }
+    col.replaceChildren(...segs);
+  }
+}
+
+function paintLedColumn(colId, numId, dbVal, minDb, maxDb, suffix = "") {
+  const col = el(colId);
+  const num = el(numId);
+  if (dbVal === null || dbVal === undefined || Number.isNaN(Number(dbVal))) {
+    col.querySelectorAll(".led-seg").forEach((s) => s.classList.remove("on", "green", "amber", "red"));
+    num.textContent = "--";
+    return;
+  }
+  const val = Number(dbVal);
+  const ratio = Math.max(0, Math.min(1, (val - minDb) / (maxDb - minDb)));
+  const litCount = Math.round(ratio * LED_SEGMENTS);
+  const segs = col.children;
+  for (let i = 0; i < segs.length; i++) {
+    const s = segs[i];
+    const isOn = i < litCount;
+    s.classList.toggle("on", isOn);
+    s.classList.remove("green", "amber", "red");
+    if (isOn) s.classList.add(s.dataset.zone);
+  }
+  num.textContent = `${val.toFixed(1)}${suffix}`;
+}
+
+function ensureAnalyserConnected() {
+  if (meterAudio.analyser) return;
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return;
   try {
-    data = await resp.json();
+    const player = el("ab-audio-player");
+    meterAudio.ctx = new AudioCtx();
+    meterAudio.analyser = meterAudio.ctx.createAnalyser();
+    meterAudio.analyser.fftSize = 1024;
+    meterAudio.buf = new Float32Array(meterAudio.analyser.fftSize);
+    meterAudio.sourceNode = meterAudio.ctx.createMediaElementSource(player);
+    meterAudio.sourceNode.connect(meterAudio.analyser);
+    meterAudio.analyser.connect(meterAudio.ctx.destination);
   } catch {
-    data = null;
+    // Graceful fallback if browser blocks analyser media hook
   }
-  if (!resp.ok) {
-    const msg = (data && data.error) ? data.error : `HTTP ${resp.status}`;
-    throw new Error(msg);
+}
+
+function startLiveMeters() {
+  ensureAnalyserConnected();
+  if (meterAudio.ctx && meterAudio.ctx.state === "suspended") {
+    meterAudio.ctx.resume().catch(() => {});
   }
-  return data;
+  if (meterAudio.rafId) return;
+  const tick = () => {
+    const player = el("ab-audio-player");
+    updateTransportReadout();
+    if (meterAudio.analyser && meterAudio.buf && !player.paused) {
+      meterAudio.analyser.getFloatTimeDomainData(meterAudio.buf);
+      let sq = 0;
+      let pk = 0;
+      for (let i = 0; i < meterAudio.buf.length; i++) {
+        const v = meterAudio.buf[i];
+        sq += v * v;
+        const av = Math.abs(v);
+        if (av > pk) pk = av;
+      }
+      const rmsDb = Math.max(-60, 10 * Math.log10(Math.max(1e-12, sq / meterAudio.buf.length)) - 0.7);
+      const pkDb = Math.max(-60, 20 * Math.log10(Math.max(1e-12, pk)));
+      meterAudio.shortTermBuf.push(rmsDb);
+      if (meterAudio.shortTermBuf.length > 90) meterAudio.shortTermBuf.shift();
+      const shortDb = meterAudio.shortTermBuf.reduce((a, b) => a + b, 0) / meterAudio.shortTermBuf.length;
+
+      paintLedColumn("led-col-m", "led-num-m", rmsDb, -60, 3);
+      paintLedColumn("led-col-s", "led-num-s", shortDb, -60, 3);
+      paintLedColumn("led-col-tp", "led-num-tp", pkDb, -60, 3);
+    }
+    if (!player.paused) {
+      meterAudio.rafId = requestAnimationFrame(tick);
+    } else {
+      meterAudio.rafId = 0;
+    }
+  };
+  meterAudio.rafId = requestAnimationFrame(tick);
 }
 
 const waveform = new WaveformRenderer(
   el("waveform-canvas"),
   (seekTimeS) => {
     const player = el("ab-audio-player");
-    if (!player || !player.src) return;
+    if (!player || !player.getAttribute("src")) return;
     const dur = Number.isFinite(player.duration) && player.duration > 0
       ? player.duration
       : (state.activeSource ? state.activeSource.probe.duration_s : 0);
@@ -100,8 +205,14 @@ const waveform = new WaveformRenderer(
       updateTransportReadout();
     }
   },
-  (hoverTimeS) => {
-    el("waveform-cursor-info").textContent = fmtTime(hoverTimeS);
+  (hoverTimeS, freqHz) => {
+    const freqTxt = freqHz !== null ? `${freqHz >= 1000 ? `${(freqHz / 1000).toFixed(2)} kHz` : `${Math.round(freqHz)} Hz`}` : "-- Hz";
+    el("waveform-cursor-info").textContent = `${fmtSmpte(hoverTimeS, state.fps)} | ${freqTxt}`;
+  },
+  (newThreshDb) => {
+    el("cut-thresh-range").value = String(newThreshDb);
+    el("cut-thresh-db").value = String(newThreshDb);
+    el("cut-thresh-readout").textContent = `${newThreshDb} dB`;
   }
 );
 
@@ -117,9 +228,7 @@ function applyLanguage(lang) {
 
   document.querySelectorAll("[data-i18n]").forEach((node) => {
     const key = node.getAttribute("data-i18n");
-    if (key) {
-      node.textContent = t(state.lang, key);
-    }
+    if (key) node.textContent = t(state.lang, key);
   });
 
   renderAll();
@@ -155,15 +264,13 @@ function setAuditionSlot(slot, autoplay = false) {
   const wasPlaying = !player.paused;
 
   const bInfo = getPreferredBAsset();
-  if (slot === "B" && !bInfo) {
-    state.auditionSlot = "A";
-  } else {
-    state.auditionSlot = slot;
-  }
+  state.auditionSlot = slot === "B" && bInfo ? "B" : "A";
 
   const targetAsset = state.auditionSlot === "B" && bInfo ? bInfo.asset : state.activeSource;
   el("btn-audition-a").classList.toggle("active", state.auditionSlot === "A");
   el("btn-audition-b").classList.toggle("active", state.auditionSlot === "B");
+  el("btn-play-a").classList.toggle("active", state.auditionSlot === "A");
+  el("btn-play-b").classList.toggle("active", state.auditionSlot === "B");
 
   if (!targetAsset) {
     player.removeAttribute("src");
@@ -193,15 +300,13 @@ function setAuditionSlot(slot, autoplay = false) {
     player.play().catch(() => {});
   }
   renderWaveform();
+  renderMeterBridge();
 }
 
 function updateTransportReadout() {
   const player = el("ab-audio-player");
   const cur = player.currentTime || 0;
-  const dur = Number.isFinite(player.duration) && player.duration > 0
-    ? player.duration
-    : (state.activeSource ? state.activeSource.probe.duration_s : 0);
-  el("transport-time-readout").textContent = `${fmtTime(cur)} / ${fmtTime(dur)}`;
+  el("transport-time-readout").textContent = `${fmtSmpte(cur, state.fps)} | ${fmtTimeMs(cur)}`;
   waveform.setPlayhead(cur);
 }
 
@@ -215,9 +320,14 @@ function renderSourceDock() {
   el("btn-run-master").disabled = !hasSource;
   el("btn-run-cut").disabled = !hasSource;
   el("btn-audition-a").disabled = !hasSource;
+  el("btn-play-a").disabled = !hasSource;
+  el("btn-rewind").disabled = !hasSource;
+  el("btn-stop").disabled = !hasSource;
+  el("btn-loop").disabled = !hasSource;
 
   const bInfo = getPreferredBAsset();
   el("btn-audition-b").disabled = !bInfo;
+  el("btn-play-b").disabled = !bInfo;
   el("audition-b-label").textContent = t(state.lang, bInfo ? bInfo.labelKey : "transport.auditionB");
 
   if (!hasSource) {
@@ -229,27 +339,79 @@ function renderSourceDock() {
 
   const s = state.activeSource;
   const p = s.probe;
-  const kindBadge = createNode("span", "badge badge-indigo", s.source_kind.toUpperCase());
-  const nameChip = createNode("span", "source-chip", s.filename);
-  const specChip = createNode(
-    "span",
-    "source-chip",
-    `${(p.sample_rate / 1000).toFixed(1)} kHz | ${p.channels}ch | ${p.duration_s.toFixed(2)}s`
+  metaWrap.replaceChildren(
+    createNode("span", "daw-tag", s.source_kind.toUpperCase()),
+    createNode("span", "source-chip", s.filename),
+    createNode("span", "source-chip", `${(p.sample_rate / 1000).toFixed(1)} kHz | ${p.channels}ch | ${p.duration_s.toFixed(2)}s`),
+    createNode("span", "source-chip", `${p.integrated_lufs.toFixed(1)} LUFS | ${p.true_peak_dbtp.toFixed(1)} dBTP`)
   );
-  const lufsChip = createNode(
-    "span",
-    "source-chip",
-    `${p.integrated_lufs.toFixed(1)} LUFS | ${p.true_peak_dbtp.toFixed(1)} dBTP`
-  );
-  metaWrap.replaceChildren(kindBadge, nameChip, specChip, lufsChip);
+}
+
+function getInspectedAsset() {
+  if (state.auditionSlot === "B") {
+    const bInfo = getPreferredBAsset();
+    if (bInfo && bInfo.asset) return bInfo.asset;
+  }
+  return state.activeSource;
+}
+
+function renderMeterBridge() {
+  const asset = getInspectedAsset();
+  const clipBadge = el("clip-led-badge");
+
+  if (!asset) {
+    paintLedColumn("led-col-m", "led-num-m", null, -60, 3);
+    paintLedColumn("led-col-s", "led-num-s", null, -60, 3);
+    paintLedColumn("led-col-i", "led-num-i", null, -60, 3);
+    paintLedColumn("led-col-tp", "led-num-tp", null, -60, 3);
+    el("meter-lufs-val").textContent = "-- LUFS";
+    el("bridge-lra-val").textContent = "-- LU";
+    el("meter-tp-val").textContent = "-- dBTP";
+    el("bridge-ostp-val").textContent = "-- dBTP";
+    el("meter-snr-val").textContent = "-- dB";
+    el("bridge-dc-val").textContent = "--";
+    clipBadge.className = "clip-led";
+    clipBadge.textContent = "CLIP OK";
+    return;
+  }
+
+  const p = asset.probe;
+  const player = el("ab-audio-player");
+  if (player.paused) {
+    paintLedColumn("led-col-m", "led-num-m", p.signal_level_dbfs, -60, 3);
+    paintLedColumn("led-col-s", "led-num-s", p.integrated_lufs, -60, 3);
+    paintLedColumn("led-col-tp", "led-num-tp", p.oversampled_true_peak_dbtp, -60, 3);
+  }
+  paintLedColumn("led-col-i", "led-num-i", p.integrated_lufs, -60, 3);
+
+  el("meter-lufs-val").textContent = `${p.integrated_lufs.toFixed(2)} LUFS`;
+  el("bridge-lra-val").textContent = `${p.lra_lu.toFixed(2)} LU`;
+  el("meter-tp-val").textContent = `${p.true_peak_dbtp.toFixed(2)} dBTP`;
+  el("bridge-ostp-val").textContent = `${p.oversampled_true_peak_dbtp.toFixed(2)} dBTP`;
+  el("meter-snr-val").textContent = `${p.estimated_snr_db.toFixed(1)} dB`;
+  el("bridge-dc-val").textContent = `${p.max_abs_dc_offset.toFixed(5)}`;
+
+  const maxTp = Math.max(p.true_peak_dbtp, p.oversampled_true_peak_dbtp);
+  if (p.has_clipping || p.has_inter_sample_clipping || maxTp > 0.0) {
+    clipBadge.className = "clip-led clip";
+    clipBadge.textContent = "CLIP OVER";
+  } else if (maxTp > -1.0) {
+    clipBadge.className = "clip-led hot";
+    clipBadge.textContent = "HOT > -1";
+  } else {
+    clipBadge.className = "clip-led";
+    clipBadge.textContent = "CLIP OK";
+  }
 }
 
 function renderWaveform() {
+  const legendThresh = el("legend-thresh");
   const legendKept = el("legend-kept");
   const legendCut = el("legend-cut");
   const trackBadge = el("waveform-track-badge");
 
   if (!state.activeSource) {
+    legendThresh.classList.add("hidden");
     legendKept.classList.add("hidden");
     legendCut.classList.add("hidden");
     trackBadge.textContent = "--";
@@ -261,6 +423,7 @@ function renderWaveform() {
   let cutOverlay = null;
   let badgeKey = "waveform.trackSource";
 
+  legendThresh.classList.toggle("hidden", state.activeTab !== "cut");
   if (state.activeTab === "cut" && state.cutResult) {
     cutOverlay = state.cutResult;
     badgeKey = "waveform.trackCut";
@@ -282,80 +445,50 @@ function renderWaveform() {
   waveform.setData({
     waveform: displayWf,
     cutData: cutOverlay,
+    threshDb: Number(el("cut-thresh-db").value),
+    showThreshold: state.activeTab === "cut",
     playheadRatio: 0,
     emptyMessage: t(state.lang, "waveform.emptyCanvas"),
   });
 }
 
-function setMeterBar(barId, valId, value, minVal, maxVal, unit, colorClass) {
-  const bar = el(barId);
-  const label = el(valId);
-  if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    bar.style.width = "0%";
-    bar.className = "meter-fill";
-    label.textContent = `-- ${unit}`;
-    return;
-  }
-  const pct = Math.max(0, Math.min(100, ((Number(value) - minVal) / (maxVal - minVal)) * 100));
-  bar.style.width = `${pct.toFixed(1)}%`;
-  bar.className = `meter-fill ${colorClass}`;
-  label.textContent = `${Number(value).toFixed(2)} ${unit}`;
-}
-
 function renderProbeTab() {
   const grid = el("probe-metrics-grid");
   if (!state.activeSource) {
-    setMeterBar("meter-lufs-bar", "meter-lufs-val", null, -60, 0, "LUFS", "meter-green");
-    setMeterBar("meter-tp-bar", "meter-tp-val", null, -40, 3, "dBTP", "meter-green");
-    setMeterBar("meter-snr-bar", "meter-snr-val", null, 0, 60, "dB", "meter-green");
     grid.replaceChildren();
     return;
   }
-
   const p = state.activeSource.probe;
-  const lufsColor = p.integrated_lufs > -12 ? "meter-amber" : "meter-green";
-  const maxTp = Math.max(p.true_peak_dbtp, p.oversampled_true_peak_dbtp);
-  const tpColor = maxTp > 0.0 ? "meter-red" : (maxTp > -1.0 ? "meter-amber" : "meter-green");
-  const snrColor = p.estimated_snr_db >= 20 ? "meter-green" : (p.estimated_snr_db >= 10 ? "meter-amber" : "meter-red");
-
-  setMeterBar("meter-lufs-bar", "meter-lufs-val", p.integrated_lufs, -60, 0, "LUFS", lufsColor);
-  setMeterBar("meter-tp-bar", "meter-tp-val", p.true_peak_dbtp, -40, 3, "dBTP", tpColor);
-  setMeterBar("meter-snr-bar", "meter-snr-val", p.estimated_snr_db, 0, 60, "dB", snrColor);
-
   const tiles = [
-    ["Integrated LUFS", fmtNum(p.integrated_lufs, 2, " LUFS"), `Gate: ${fmtNum(p.threshold_lufs, 2, " LUFS")}`],
-    ["Loudness Range (LRA)", fmtNum(p.lra_lu, 2, " LU"), `${fmtNum(p.lra_low_lufs, 1)} to ${fmtNum(p.lra_high_lufs, 1)}`],
-    ["FFmpeg True Peak", fmtNum(p.true_peak_dbtp, 2, " dBTP"), `Sample: ${fmtNum(p.ffmpeg_sample_peak_dbfs, 2, " dBFS")}`],
-    ["4x Oversampled Peak", fmtNum(p.oversampled_true_peak_dbtp, 2, " dBTP"), `ISP Excess: +${fmtNum(p.inter_sample_peak_excess_db, 2, " dB")}`],
-    ["Sample Peak / RMS", fmtNum(p.sample_peak_dbfs, 2, " dBFS"), `RMS: ${fmtNum(p.rms_dbfs, 2, " dBFS")}`],
-    ["Crest Factor", fmtNum(p.crest_factor_db, 2, " dB"), `SNR: ${fmtNum(p.estimated_snr_db, 1, " dB")}`],
-    ["Noise Floor / Signal", fmtNum(p.noise_floor_dbfs, 1, " dBFS"), `Active: ${fmtNum(p.signal_level_dbfs, 1, " dBFS")}`],
-    ["Max Abs DC Offset", Number(p.max_abs_dc_offset).toFixed(6), `Ch: ${p.dc_offset_per_channel.map((v) => v.toFixed(4)).join(", ")}`],
-    ["Clipped Samples", `${p.clipped_samples}`, `Ratio: ${(p.clipped_ratio * 100).toFixed(4)}%`],
-    ["Format & Duration", `${p.sample_rate} Hz / ${p.channels}ch`, `${p.duration_s.toFixed(3)}s (${p.n_samples} smp)`],
+    ["Integrated LUFS", fmtNum(p.integrated_lufs, 2, " LUFS"), `Gate ${fmtNum(p.threshold_lufs, 2, " LUFS")}`],
+    ["Loudness Range", fmtNum(p.lra_lu, 2, " LU"), `${fmtNum(p.lra_low_lufs, 1)} .. ${fmtNum(p.lra_high_lufs, 1)}`],
+    ["FFmpeg True Peak", fmtNum(p.true_peak_dbtp, 2, " dBTP"), `Sample ${fmtNum(p.ffmpeg_sample_peak_dbfs, 2, " dBFS")}`],
+    ["4x Oversampled TP", fmtNum(p.oversampled_true_peak_dbtp, 2, " dBTP"), `ISP +${fmtNum(p.inter_sample_peak_excess_db, 2, " dB")}`],
+    ["Sample Peak / RMS", fmtNum(p.sample_peak_dbfs, 2, " dBFS"), `RMS ${fmtNum(p.rms_dbfs, 2, " dBFS")}`],
+    ["Crest / SNR", `${fmtNum(p.crest_factor_db, 2, " dB")}`, `SNR ${fmtNum(p.estimated_snr_db, 1, " dB")}`],
+    ["Noise Floor / Sig", fmtNum(p.noise_floor_dbfs, 1, " dBFS"), `Sig ${fmtNum(p.signal_level_dbfs, 1, " dBFS")}`],
+    ["Max DC Offset", Number(p.max_abs_dc_offset).toFixed(6), `Ch ${p.dc_offset_per_channel.map((v) => v.toFixed(4)).join(",")}`],
+    ["Clipped Samples", `${p.clipped_samples}`, `${(p.clipped_ratio * 100).toFixed(4)}%`],
+    ["Stream Spec", `${p.sample_rate} Hz / ${p.channels}ch`, `${p.duration_s.toFixed(3)}s`],
   ];
-
-  const nodes = tiles.map(([label, val, sub]) => {
-    const card = createNode("div", "metric-tile");
-    card.append(
-      createNode("div", "metric-tile-label", label),
-      createNode("div", "metric-tile-value", val),
-      createNode("div", "metric-tile-sub", sub)
-    );
-    return card;
-  });
-  grid.replaceChildren(...nodes);
+  grid.replaceChildren(
+    ...tiles.map(([label, val, sub]) => {
+      const card = createNode("div", "metric-tile");
+      card.append(
+        createNode("div", "metric-tile-label", label),
+        createNode("div", "metric-tile-value", val),
+        createNode("div", "metric-tile-sub", sub)
+      );
+      return card;
+    })
+  );
 }
 
 function makeDiffCard(label, beforeVal, afterVal, deltaText, deltaClass = "") {
   const card = createNode("div", "diff-card");
   const values = createNode("div", "diff-values");
-  values.append(
-    createNode("span", "diff-before", beforeVal),
-    createNode("span", "diff-after", afterVal)
-  );
-  const delta = createNode("span", `diff-delta ${deltaClass}`.trim(), deltaText);
-  card.append(createNode("div", "diff-title", label), values, delta);
+  values.append(createNode("span", "diff-before", beforeVal), createNode("span", "diff-after", afterVal));
+  card.append(createNode("div", "diff-title", label), values, createNode("span", `diff-delta ${deltaClass}`.trim(), deltaText));
   return card;
 }
 
@@ -394,56 +527,25 @@ function renderCleanTab() {
   const b = state.cleanResult.before_probe;
   const a = state.cleanResult.after_probe;
   const stats = state.cleanResult.stats;
-
   const snrDelta = a.estimated_snr_db - b.estimated_snr_db;
   const floorDelta = a.noise_floor_dbfs - b.noise_floor_dbfs;
   const lufsDelta = a.integrated_lufs - b.integrated_lufs;
   const dcDelta = a.max_abs_dc_offset - b.max_abs_dc_offset;
   const tpDelta = a.true_peak_dbtp - b.true_peak_dbtp;
 
-  const cards = [
-    makeDiffCard(
-      "Estimated SNR",
-      fmtNum(b.estimated_snr_db, 1, " dB"),
-      fmtNum(a.estimated_snr_db, 1, " dB"),
-      `${snrDelta >= 0 ? "+" : ""}${snrDelta.toFixed(1)} dB`,
-      snrDelta > 0.5 ? "good" : ""
-    ),
-    makeDiffCard(
-      "Noise Floor",
-      fmtNum(b.noise_floor_dbfs, 1, " dBFS"),
-      fmtNum(a.noise_floor_dbfs, 1, " dBFS"),
-      `${floorDelta >= 0 ? "+" : ""}${floorDelta.toFixed(1)} dB`,
-      floorDelta < -0.5 ? "good" : ""
-    ),
-    makeDiffCard(
-      "Integrated LUFS",
-      fmtNum(b.integrated_lufs, 2, " LUFS"),
-      fmtNum(a.integrated_lufs, 2, " LUFS"),
-      `${lufsDelta >= 0 ? "+" : ""}${lufsDelta.toFixed(2)} LU`
-    ),
-    makeDiffCard(
-      "Max DC Offset",
-      b.max_abs_dc_offset.toFixed(5),
-      a.max_abs_dc_offset.toFixed(5),
-      `${dcDelta >= 0 ? "+" : ""}${dcDelta.toFixed(5)}`,
-      a.max_abs_dc_offset < 1e-4 ? "good" : ""
-    ),
-    makeDiffCard(
-      "True Peak",
-      fmtNum(b.true_peak_dbtp, 2, " dBTP"),
-      fmtNum(a.true_peak_dbtp, 2, " dBTP"),
-      `${tpDelta >= 0 ? "+" : ""}${tpDelta.toFixed(2)} dB`
-    ),
-  ];
-  el("clean-diff-grid").replaceChildren(...cards);
+  el("clean-diff-grid").replaceChildren(
+    makeDiffCard("SNR", fmtNum(b.estimated_snr_db, 1, " dB"), fmtNum(a.estimated_snr_db, 1, " dB"), `${snrDelta >= 0 ? "+" : ""}${snrDelta.toFixed(1)} dB`, snrDelta > 0.5 ? "good" : ""),
+    makeDiffCard("Floor", fmtNum(b.noise_floor_dbfs, 1, " dBFS"), fmtNum(a.noise_floor_dbfs, 1, " dBFS"), `${floorDelta >= 0 ? "+" : ""}${floorDelta.toFixed(1)} dB`, floorDelta < -0.5 ? "good" : ""),
+    makeDiffCard("LUFS", fmtNum(b.integrated_lufs, 2), fmtNum(a.integrated_lufs, 2), `${lufsDelta >= 0 ? "+" : ""}${lufsDelta.toFixed(2)} LU`),
+    makeDiffCard("DC", b.max_abs_dc_offset.toFixed(5), a.max_abs_dc_offset.toFixed(5), `${dcDelta >= 0 ? "+" : ""}${dcDelta.toFixed(5)}`, a.max_abs_dc_offset < 1e-4 ? "good" : ""),
+    makeDiffCard("True Peak", fmtNum(b.true_peak_dbtp, 2), fmtNum(a.true_peak_dbtp, 2), `${tpDelta >= 0 ? "+" : ""}${tpDelta.toFixed(2)} dB`)
+  );
 
   const statItems = [
-    ["Clicks Repaired", String(stats.clicks_repaired)],
-    ["Parseval Rel. Error", Number(stats.parseval_relative_error).toExponential(2)],
-    ["Est. Noise Reduction", `${Number(stats.noise_reduction_db_est).toFixed(2)} dB`],
-    ["FFT / Hop", `${stats.n_fft} / ${stats.hop_length}`],
-    ["HPF Cutoff", `${stats.highpass_hz} Hz`],
+    ["Clicks", String(stats.clicks_repaired)],
+    ["Parseval Err", Number(stats.parseval_relative_error).toExponential(2)],
+    ["NR Est", `${Number(stats.noise_reduction_db_est).toFixed(2)} dB`],
+    ["STFT", `${stats.n_fft}/${stats.hop_length}`],
   ];
   el("clean-dsp-stats").replaceChildren(
     ...statItems.map(([k, v]) => {
@@ -454,26 +556,41 @@ function renderCleanTab() {
   );
 }
 
+function selectPreset(presetName) {
+  const cfg = state.presets[presetName];
+  if (!cfg) return;
+  state.selectedPreset = presetName;
+  el("master-target-lufs").value = String(cfg.target_lufs);
+  el("master-max-tp").value = String(cfg.max_true_peak_dbtp);
+  el("master-target-lra").value = String(cfg.target_lra);
+  el("ribbon-preset-select").value = presetName;
+  renderPresetPills();
+}
+
 function renderPresetPills() {
   const rack = el("master-presets-rack");
+  const rib = el("ribbon-preset-select");
   const entries = Object.entries(state.presets || {}).sort(([a], [b]) => a.localeCompare(b));
-  const pills = entries.map(([name, cfg]) => {
-    const btn = createNode("button", "preset-pill", `${name} (${cfg.target_lufs} LUFS)`);
-    btn.type = "button";
-    btn.dataset.preset = name;
-    if (name === state.selectedPreset) {
-      btn.classList.add("active");
-    }
-    btn.addEventListener("click", () => {
-      state.selectedPreset = name;
-      el("master-target-lufs").value = String(cfg.target_lufs);
-      el("master-max-tp").value = String(cfg.max_true_peak_dbtp);
-      el("master-target-lra").value = String(cfg.target_lra);
-      renderPresetPills();
-    });
-    return btn;
-  });
-  rack.replaceChildren(...pills);
+
+  rack.replaceChildren(
+    ...entries.map(([name, cfg]) => {
+      const btn = createNode("button", "preset-pill", `${name} ${cfg.target_lufs}`);
+      btn.type = "button";
+      btn.dataset.preset = name;
+      if (name === state.selectedPreset) btn.classList.add("active");
+      btn.addEventListener("click", () => selectPreset(name));
+      return btn;
+    })
+  );
+
+  rib.replaceChildren(
+    ...entries.map(([name, cfg]) => {
+      const opt = createNode("option", "", `${name} (${cfg.target_lufs} LUFS)`);
+      opt.value = name;
+      return opt;
+    })
+  );
+  rib.value = state.selectedPreset;
 }
 
 function renderMasterTab() {
@@ -513,58 +630,28 @@ function renderMasterTab() {
   const a = state.masterResult.after_probe;
   const tpOk = a.true_peak_dbtp <= mr.max_true_peak_dbtp + 0.05;
 
-  const compBar = el("master-compliance-bar");
-  const badge = createNode(
-    "span",
-    `badge ${tpOk ? "badge-green" : "badge-amber"}`,
-    tpOk
-      ? `COMPLIANT: ${a.integrated_lufs.toFixed(2)} LUFS | TP ${a.true_peak_dbtp.toFixed(2)} <= ${mr.max_true_peak_dbtp.toFixed(1)} dBTP`
-      : `CHECK CEILING: TP ${a.true_peak_dbtp.toFixed(2)} dBTP`
+  el("master-compliance-bar").replaceChildren(
+    createNode(
+      "span",
+      `badge ${tpOk ? "badge-green" : "badge-amber"}`,
+      tpOk
+        ? `COMPLIANT: ${a.integrated_lufs.toFixed(2)} LUFS | TP ${a.true_peak_dbtp.toFixed(2)} <= ${mr.max_true_peak_dbtp.toFixed(1)} dBTP`
+        : `CHECK CEILING: TP ${a.true_peak_dbtp.toFixed(2)} dBTP`
+    ),
+    createNode("span", "stat-chip", `${mr.loudnorm_mode} | ${mr.preset}`)
   );
-  const modeSpan = createNode("span", "stat-chip", `Mode: ${mr.loudnorm_mode} | Preset: ${mr.preset}`);
-  compBar.replaceChildren(badge, modeSpan);
 
   const lufsErr = a.integrated_lufs - mr.target_lufs;
-  const cards = [
-    makeDiffCard(
-      "Integrated Loudness",
-      fmtNum(b.integrated_lufs, 2, " LUFS"),
-      fmtNum(a.integrated_lufs, 2, " LUFS"),
-      `Target ${mr.target_lufs.toFixed(1)} (${lufsErr >= 0 ? "+" : ""}${lufsErr.toFixed(2)} LU)`,
-      Math.abs(lufsErr) <= 1.0 ? "good" : "warn"
-    ),
-    makeDiffCard(
-      "True Peak (FFmpeg)",
-      fmtNum(b.true_peak_dbtp, 2, " dBTP"),
-      fmtNum(a.true_peak_dbtp, 2, " dBTP"),
-      `Ceiling <= ${mr.max_true_peak_dbtp.toFixed(1)} dBTP`,
-      tpOk ? "good" : "warn"
-    ),
-    makeDiffCard(
-      "4x Oversampled TP",
-      fmtNum(b.oversampled_true_peak_dbtp, 2, " dBTP"),
-      fmtNum(a.oversampled_true_peak_dbtp, 2, " dBTP"),
-      `ISP Excess: +${a.inter_sample_peak_excess_db.toFixed(2)} dB`,
-      a.oversampled_true_peak_dbtp <= mr.max_true_peak_dbtp + 0.1 ? "good" : "warn"
-    ),
-    makeDiffCard(
-      "Loudness Range (LRA)",
-      fmtNum(b.lra_lu, 2, " LU"),
-      fmtNum(a.lra_lu, 2, " LU"),
-      `Target LRA: ${mr.target_lra.toFixed(1)} LU`
-    ),
-  ];
-  el("master-diff-grid").replaceChildren(...cards);
+  el("master-diff-grid").replaceChildren(
+    makeDiffCard("LUFS", fmtNum(b.integrated_lufs, 2), fmtNum(a.integrated_lufs, 2), `Target ${mr.target_lufs.toFixed(1)} (${lufsErr >= 0 ? "+" : ""}${lufsErr.toFixed(2)})`, Math.abs(lufsErr) <= 1.0 ? "good" : "warn"),
+    makeDiffCard("True Peak", fmtNum(b.true_peak_dbtp, 2), fmtNum(a.true_peak_dbtp, 2), `<= ${mr.max_true_peak_dbtp.toFixed(1)} dBTP`, tpOk ? "good" : "warn"),
+    makeDiffCard("4x OS TP", fmtNum(b.oversampled_true_peak_dbtp, 2), fmtNum(a.oversampled_true_peak_dbtp, 2), `ISP +${a.inter_sample_peak_excess_db.toFixed(2)} dB`, a.oversampled_true_peak_dbtp <= mr.max_true_peak_dbtp + 0.1 ? "good" : "warn"),
+    makeDiffCard("LRA", fmtNum(b.lra_lu, 2), fmtNum(a.lra_lu, 2), `Target ${mr.target_lra.toFixed(1)} LU`)
+  );
 
   const pass1 = mr.pass1_stats || {};
-  const stats = [
-    ["Pass 1 Input I", `${pass1.input_i || "--"} LUFS`],
-    ["Pass 1 Input TP", `${pass1.input_tp || "--"} dBTP`],
-    ["Target Offset", `${pass1.target_offset || "--"} dB`],
-    ["Output File", outAsset.filename],
-  ];
   el("master-pass-stats").replaceChildren(
-    ...stats.map(([k, v]) => {
+    ...[["P1 Input I", `${pass1.input_i || "--"} LUFS`], ["P1 Input TP", `${pass1.input_tp || "--"} dBTP`], ["Offset", `${pass1.target_offset || "--"} dB`], ["File", outAsset.filename]].map(([k, v]) => {
       const chip = createNode("span", "stat-chip", `${k}: `);
       chip.append(createNode("strong", "", v));
       return chip;
@@ -574,6 +661,7 @@ function renderMasterTab() {
 
 function setExportLink(id, url, filename) {
   const node = el(id);
+  if (!node) return;
   if (!url) {
     node.classList.add("disabled-link");
     node.setAttribute("aria-disabled", "true");
@@ -597,6 +685,7 @@ function renderCutTab() {
     body.classList.add("hidden");
     btnPlayA.disabled = !state.activeSource;
     btnPlayB.disabled = true;
+    for (const k of ["otio", "edl", "srt", "vtt", "wav"]) setExportLink(`sb-export-${k}`, null);
     return;
   }
 
@@ -607,70 +696,85 @@ function renderCutTab() {
 
   const c = state.cutResult;
   const savedPct = c.input_duration_s > 0 ? (c.removed_duration_s / c.input_duration_s) * 100 : 0;
-  const kpis = [
-    ["Segments Kept", String(c.segment_count), "VAD speech regions"],
-    ["Input Duration", `${c.input_duration_s.toFixed(2)}s`, "Source length"],
-    ["Kept Speech", `${c.kept_duration_s.toFixed(2)}s`, `${(100 - savedPct).toFixed(1)}% retained`],
-    ["Removed Silence", `${c.removed_duration_s.toFixed(2)}s`, `${savedPct.toFixed(1)}% trimmed`],
-  ];
   el("cut-kpi-strip").replaceChildren(
-    ...kpis.map(([lbl, val, sub]) => {
+    ...[
+      ["Segments", String(c.segment_count), "VAD speech"],
+      ["Input", `${c.input_duration_s.toFixed(2)}s`, "Source"],
+      ["Kept", `${c.kept_duration_s.toFixed(2)}s`, `${(100 - savedPct).toFixed(1)}%`],
+      ["Trimmed", `${c.removed_duration_s.toFixed(2)}s`, `-${savedPct.toFixed(1)}%`],
+    ].map(([lbl, val, sub]) => {
       const tile = createNode("div", "metric-tile");
-      tile.append(
-        createNode("div", "metric-tile-label", lbl),
-        createNode("div", "metric-tile-value", val),
-        createNode("div", "metric-tile-sub", sub)
-      );
+      tile.append(createNode("div", "metric-tile-label", lbl), createNode("div", "metric-tile-value", val), createNode("div", "metric-tile-sub", sub));
       return tile;
     })
   );
 
   const dl = c.downloads || {};
-  setExportLink("export-link-otio", dl.otio);
-  setExportLink("export-link-edl", dl.edl);
-  setExportLink("export-link-srt", dl.srt);
-  setExportLink("export-link-vtt", dl.vtt);
-  setExportLink("export-link-wav", dl.wav);
+  for (const kind of ["otio", "edl", "srt", "vtt", "wav"]) {
+    setExportLink(`export-link-${kind}`, dl[kind], `loudgate_export.${kind}`);
+    setExportLink(`sb-export-${kind}`, dl[kind], `loudgate_export.${kind}`);
+  }
 
   const tbody = el("cut-segments-tbody");
   if (!c.segments || c.segments.length === 0) {
     const tr = createNode("tr");
-    const td = createNode("td", "", "0 active segments detected at this threshold. Lower Silence Threshold (e.g. -48 dBFS).");
+    const td = createNode("td", "", "0 active segments detected above threshold. Lower Threshold dBFS.");
     td.colSpan = 6;
     tr.append(td);
     tbody.replaceChildren(tr);
     return;
   }
 
-  const rows = c.segments.map((seg) => {
-    const tr = createNode("tr");
-    tr.title = `Seek to ${seg.start_s.toFixed(2)}s`;
-    tr.append(
-      createNode("td", "", `#${seg.index}`),
-      createNode("td", "", fmtTime(seg.start_s)),
-      createNode("td", "", fmtTime(seg.end_s)),
-      createNode("td", "", `${seg.duration_s.toFixed(3)}s`),
-      createNode("td", "", `${seg.rms_dbfs.toFixed(1)}`),
-      createNode("td", "", `${seg.mean_zcr.toFixed(3)}`)
-    );
-    tr.addEventListener("click", () => {
-      setAuditionSlot("A", false);
-      const player = el("ab-audio-player");
-      player.currentTime = seg.start_s;
-      updateTransportReadout();
-    });
-    return tr;
-  });
-  tbody.replaceChildren(...rows);
+  tbody.replaceChildren(
+    ...c.segments.map((seg) => {
+      const tr = createNode("tr");
+      tr.title = `Seek to ${seg.start_s.toFixed(2)}s`;
+      tr.append(
+        createNode("td", "", `#${seg.index}`),
+        createNode("td", "", fmtSmpte(seg.start_s, state.fps)),
+        createNode("td", "", fmtSmpte(seg.end_s, state.fps)),
+        createNode("td", "", `${seg.duration_s.toFixed(3)}s`),
+        createNode("td", "", `${seg.rms_dbfs.toFixed(1)}`),
+        createNode("td", "", `${seg.mean_zcr.toFixed(3)}`)
+      );
+      tr.addEventListener("click", () => {
+        setAuditionSlot("A", false);
+        el("ab-audio-player").currentTime = seg.start_s;
+        updateTransportReadout();
+      });
+      return tr;
+    })
+  );
+}
+
+function renderStatusBar() {
+  const fsEl = el("status-fs-ch");
+  const snrEl = el("status-snr-delta");
+  if (!state.activeSource) {
+    fsEl.textContent = "-- Hz | -- ch | --s";
+    snrEl.textContent = "SNR: --";
+    return;
+  }
+  const p = state.activeSource.probe;
+  fsEl.textContent = `${p.sample_rate} Hz | ${p.channels}ch | ${p.duration_s.toFixed(2)}s`;
+  if (state.cleanResult) {
+    const bSnr = state.cleanResult.before_probe.estimated_snr_db;
+    const aSnr = state.cleanResult.after_probe.estimated_snr_db;
+    snrEl.textContent = `SNR: ${bSnr.toFixed(1)} -> ${aSnr.toFixed(1)} dB (+${(aSnr - bSnr).toFixed(1)} dB)`;
+  } else {
+    snrEl.textContent = `SNR: ${p.estimated_snr_db.toFixed(1)} dB | LUFS: ${p.integrated_lufs.toFixed(1)}`;
+  }
 }
 
 function renderAll() {
   renderSourceDock();
+  renderMeterBridge();
   renderProbeTab();
   renderCleanTab();
   renderMasterTab();
   renderCutTab();
   renderWaveform();
+  renderStatusBar();
 }
 
 function switchTab(tabName) {
@@ -693,42 +797,45 @@ function switchTab(tabName) {
 
   renderSourceDock();
   renderWaveform();
+  renderMeterBridge();
 }
 
-function syncRangeAndNumber(rangeId, numId, readoutId, unit, decimals = 0) {
+function syncRangeAndNumber(rangeId, numId, readoutId, unit, decimals = 0, onInputExtra = null) {
   const range = el(rangeId);
   const num = el(numId);
   const readout = el(readoutId);
-  const updateReadout = (val) => {
-    const formatted = Number(val).toFixed(decimals);
-    readout.textContent = unit ? `${formatted} ${unit}` : formatted;
+  const update = (val) => {
+    readout.textContent = unit ? `${Number(val).toFixed(decimals)} ${unit}` : Number(val).toFixed(decimals);
+    if (onInputExtra) onInputExtra(Number(val));
   };
   range.addEventListener("input", () => {
     num.value = range.value;
-    updateReadout(range.value);
+    update(range.value);
   });
   num.addEventListener("input", () => {
     if (num.value !== "" && !Number.isNaN(Number(num.value))) {
       range.value = num.value;
-      updateReadout(num.value);
+      update(num.value);
     }
   });
 }
 
 async function refreshWorkspaceFiles() {
   try {
-    const data = await apiJson("/api/workspace/files");
+    const data = await engine.listWorkspaceFiles();
     const select = el("workspace-file-select");
     const placeholder = createNode("option", "", t(state.lang, "source.workspacePlaceholder"));
     placeholder.value = "";
-    const options = (data.files || []).map((item) => {
-      const opt = createNode("option", "", item.path);
-      opt.value = item.path;
-      return opt;
-    });
-    select.replaceChildren(placeholder, ...options);
+    select.replaceChildren(
+      placeholder,
+      ...(data.files || []).map((item) => {
+        const opt = createNode("option", "", item.path);
+        opt.value = item.path;
+        return opt;
+      })
+    );
   } catch {
-    // Non-fatal on initial boot
+    // Non-fatal
   }
 }
 
@@ -746,10 +853,7 @@ async function handleFileUpload(file) {
   clearAlert();
   setBusy(true, "status.uploading");
   try {
-    const form = new FormData();
-    form.append("file", file, file.name);
-    const data = await apiJson("/api/upload", { method: "POST", body: form });
-    await loadNewActiveSource(data);
+    await loadNewActiveSource(await engine.uploadFile(file));
   } catch (err) {
     showAlert(t(state.lang, "error.validationTitle"), err.message);
   } finally {
@@ -770,10 +874,27 @@ function bindEvents() {
     btn.addEventListener("click", () => switchTab(btn.dataset.tab));
   });
 
+  document.querySelectorAll(".view-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".view-btn").forEach((b) => b.classList.toggle("active", b === btn));
+      waveform.setViewMode(btn.dataset.view);
+    });
+  });
+
   syncRangeAndNumber("clean-highpass-range", "clean-highpass-hz", "clean-hpf-readout", "Hz", 0);
   syncRangeAndNumber("clean-strength-range", "clean-denoise-strength", "clean-strength-readout", "", 2);
   syncRangeAndNumber("clean-floor-range", "clean-spectral-floor", "clean-floor-readout", "dB", 0);
-  syncRangeAndNumber("cut-thresh-range", "cut-thresh-db", "cut-thresh-readout", "dB", 0);
+  syncRangeAndNumber("cut-thresh-range", "cut-thresh-db", "cut-thresh-readout", "dB", 0, (val) => {
+    waveform.setThresholdDb(val);
+  });
+
+  el("cut-fps").addEventListener("change", () => {
+    state.fps = Number(el("cut-fps").value) || 25;
+    updateTransportReadout();
+    renderCutTab();
+  });
+
+  el("ribbon-preset-select").addEventListener("change", (evt) => selectPreset(evt.target.value));
 
   el("btn-audition-a").addEventListener("click", () => setAuditionSlot("A", false));
   el("btn-audition-b").addEventListener("click", () => setAuditionSlot("B", false));
@@ -781,14 +902,37 @@ function bindEvents() {
   const player = el("ab-audio-player");
   player.addEventListener("timeupdate", updateTransportReadout);
   player.addEventListener("loadedmetadata", updateTransportReadout);
-  player.addEventListener("ended", updateTransportReadout);
+  player.addEventListener("play", startLiveMeters);
+  player.addEventListener("ended", () => {
+    updateTransportReadout();
+    renderMeterBridge();
+  });
+  player.addEventListener("pause", () => renderMeterBridge());
+
+  el("btn-rewind").addEventListener("click", () => {
+    player.currentTime = 0;
+    updateTransportReadout();
+  });
+  el("btn-play-a").addEventListener("click", () => setAuditionSlot("A", true));
+  el("btn-play-b").addEventListener("click", () => setAuditionSlot("B", true));
+  el("btn-stop").addEventListener("click", () => {
+    player.pause();
+    player.currentTime = 0;
+    updateTransportReadout();
+    renderMeterBridge();
+  });
+  el("btn-loop").addEventListener("click", () => {
+    state.looping = !state.looping;
+    player.loop = state.looping;
+    el("btn-loop").classList.toggle("active", state.looping);
+    el("btn-loop").setAttribute("aria-pressed", String(state.looping));
+  });
 
   el("btn-load-sample").addEventListener("click", async () => {
     clearAlert();
     setBusy(true, "status.loadingSample");
     try {
-      const data = await apiJson("/api/sample", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-      await loadNewActiveSource(data);
+      await loadNewActiveSource(await engine.loadSample());
     } catch (err) {
       showAlert(t(state.lang, "error.validationTitle"), err.message);
     } finally {
@@ -798,21 +942,19 @@ function bindEvents() {
 
   el("audio-upload-input").addEventListener("change", (evt) => {
     const file = evt.target.files && evt.target.files[0];
-    if (file) {
-      handleFileUpload(file);
-    }
+    if (file) handleFileUpload(file);
     evt.target.value = "";
   });
 
-  const dock = document.querySelector(".source-dock");
-  dock.addEventListener("dragover", (evt) => {
+  const subbar = document.querySelector(".daw-subbar");
+  subbar.addEventListener("dragover", (evt) => {
     evt.preventDefault();
-    dock.classList.add("drag-active");
+    subbar.classList.add("drag-active");
   });
-  dock.addEventListener("dragleave", () => dock.classList.remove("drag-active"));
-  dock.addEventListener("drop", (evt) => {
+  subbar.addEventListener("dragleave", () => subbar.classList.remove("drag-active"));
+  subbar.addEventListener("drop", (evt) => {
     evt.preventDefault();
-    dock.classList.remove("drag-active");
+    subbar.classList.remove("drag-active");
     const file = evt.dataTransfer && evt.dataTransfer.files && evt.dataTransfer.files[0];
     if (file) handleFileUpload(file);
   });
@@ -827,12 +969,7 @@ function bindEvents() {
     }
     setBusy(true, "status.loadingWorkspace");
     try {
-      const data = await apiJson("/api/workspace/load", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: relPath }),
-      });
-      await loadNewActiveSource(data);
+      await loadNewActiveSource(await engine.loadWorkspaceFile(relPath));
     } catch (err) {
       showAlert(t(state.lang, "error.validationTitle"), err.message);
     } finally {
@@ -843,7 +980,7 @@ function bindEvents() {
   el("btn-reset-session").addEventListener("click", async () => {
     clearAlert();
     try {
-      await apiJson("/api/session/reset", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      await engine.resetSession();
       state.activeSource = null;
       state.cleanResult = null;
       state.masterResult = null;
@@ -863,15 +1000,7 @@ function bindEvents() {
     }
     setBusy(true, "status.probing");
     try {
-      const data = await apiJson("/api/probe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          asset_id: state.activeSource.asset_id,
-          clip_threshold: Number(el("probe-clip-threshold").value),
-        }),
-      });
-      state.activeSource = data;
+      state.activeSource = await engine.probe(state.activeSource.asset_id, Number(el("probe-clip-threshold").value));
       renderAll();
     } catch (err) {
       showAlert(t(state.lang, "error.validationTitle"), err.message);
@@ -900,23 +1029,18 @@ function bindEvents() {
     }
     setBusy(true, "status.cleaning");
     try {
-      const data = await apiJson("/api/clean", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          asset_id: state.activeSource.asset_id,
-          highpass_hz: Number(el("clean-highpass-hz").value),
-          denoise_strength: Number(el("clean-denoise-strength").value),
-          spectral_floor_db: Number(el("clean-spectral-floor").value),
-          n_fft: Number(el("clean-n-fft").value),
-          hop_length: Number(el("clean-hop-length").value),
-          declick: el("clean-declick").checked,
-          remove_dc: el("clean-remove-dc").checked,
-          deess_enabled: el("clean-deess").checked,
-          gate_enabled: el("clean-gate").checked,
-        }),
+      state.cleanResult = await engine.clean({
+        asset_id: state.activeSource.asset_id,
+        highpass_hz: Number(el("clean-highpass-hz").value),
+        denoise_strength: Number(el("clean-denoise-strength").value),
+        spectral_floor_db: Number(el("clean-spectral-floor").value),
+        n_fft: Number(el("clean-n-fft").value),
+        hop_length: Number(el("clean-hop-length").value),
+        declick: el("clean-declick").checked,
+        remove_dc: el("clean-remove-dc").checked,
+        deess_enabled: el("clean-deess").checked,
+        gate_enabled: el("clean-gate").checked,
       });
-      state.cleanResult = data;
       setAuditionSlot("B", false);
       renderAll();
     } catch (err) {
@@ -937,21 +1061,16 @@ function bindEvents() {
     try {
       const rawLufs = el("master-target-lufs").value.trim();
       const rawLra = el("master-target-lra").value.trim();
-      const data = await apiJson("/api/master", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          asset_id: state.activeSource.asset_id,
-          preset: state.selectedPreset,
-          target_lufs: rawLufs === "" ? null : Number(rawLufs),
-          max_true_peak_dbtp: Number(el("master-max-tp").value),
-          target_lra: rawLra === "" ? null : Number(rawLra),
-          format: el("master-format").value,
-          bitrate: el("master-bitrate").value,
-          dual_mono: el("master-dual-mono").checked,
-        }),
+      state.masterResult = await engine.master({
+        asset_id: state.activeSource.asset_id,
+        preset: state.selectedPreset,
+        target_lufs: rawLufs === "" ? null : Number(rawLufs),
+        max_true_peak_dbtp: Number(el("master-max-tp").value),
+        target_lra: rawLra === "" ? null : Number(rawLra),
+        format: el("master-format").value,
+        bitrate: el("master-bitrate").value,
+        dual_mono: el("master-dual-mono").checked,
       });
-      state.masterResult = data;
       setAuditionSlot("B", false);
       renderAll();
     } catch (err) {
@@ -970,21 +1089,16 @@ function bindEvents() {
     }
     setBusy(true, "status.cutting");
     try {
-      const data = await apiJson("/api/cut", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          asset_id: state.activeSource.asset_id,
-          silence_thresh_db: Number(el("cut-thresh-db").value),
-          min_silence_ms: Number(el("cut-min-silence").value),
-          min_speech_ms: Number(el("cut-min-speech").value),
-          pad_ms: Number(el("cut-pad-ms").value),
-          fps: Number(el("cut-fps").value),
-          render_audio: el("cut-render-audio").checked,
-        }),
+      state.cutResult = await engine.cut({
+        asset_id: state.activeSource.asset_id,
+        silence_thresh_db: Number(el("cut-thresh-db").value),
+        min_silence_ms: Number(el("cut-min-silence").value),
+        min_speech_ms: Number(el("cut-min-speech").value),
+        pad_ms: Number(el("cut-pad-ms").value),
+        fps: Number(el("cut-fps").value),
+        render_audio: el("cut-render-audio").checked,
       });
-      state.cutResult = data;
-      setAuditionSlot(data.trimmed_asset ? "B" : "A", false);
+      setAuditionSlot(state.cutResult.trimmed_asset ? "B" : "A", false);
       renderAll();
     } catch (err) {
       showAlert(t(state.lang, "error.validationTitle"), err.message);
@@ -1004,11 +1118,7 @@ function bindEvents() {
     if (!asset) return;
     clearAlert();
     try {
-      const snap = await apiJson("/api/session/activate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ asset_id: asset.asset_id }),
-      });
+      const snap = await engine.activateSource(asset.asset_id);
       state.activeSource = snap.active_source;
       state.cleanResult = snap.clean;
       state.masterResult = snap.master;
@@ -1029,36 +1139,31 @@ function bindEvents() {
 }
 
 async function init() {
+  buildLedColumns();
   bindEvents();
-  try {
-    const [health, session] = await Promise.all([
-      apiJson("/api/health"),
-      apiJson("/api/session"),
-    ]);
-    el("studio-version-badge").textContent = `Studio v${health.version}`;
-    el("workspace-dir-pill").textContent = health.workspace_dir;
-    el("workspace-dir-pill").title = health.workspace_dir;
-    state.presets = health.presets || {};
-    if (state.presets[state.selectedPreset]) {
-      const p = state.presets[state.selectedPreset];
-      el("master-target-lufs").value = String(p.target_lufs);
-      el("master-max-tp").value = String(p.max_true_peak_dbtp);
-      el("master-target-lra").value = String(p.target_lra);
-    }
-    renderPresetPills();
 
-    state.activeSource = session.active_source || null;
-    state.cleanResult = session.clean || null;
-    state.masterResult = session.master || null;
-    state.cutResult = session.cut || null;
-  } catch (err) {
-    showAlert("Studio Boot Error", err.message);
-  }
+  const { mode, health, session } = await engine.boot();
+  el("studio-version-badge").textContent = `v${health.version}`;
+  el("workspace-dir-pill").textContent = health.workspace_dir;
+  el("workspace-dir-pill").title = health.workspace_dir;
+
+  const modeBadge = el("engine-mode-badge");
+  modeBadge.textContent = mode === "static" ? "BROWSER WEBAUDIO DEMO" : "LOCAL PYTHON+FFMPEG";
+  modeBadge.classList.toggle("demo", mode === "static");
+
+  state.presets = health.presets || {};
+  renderPresetPills();
+  selectPreset(state.selectedPreset);
+
+  state.activeSource = session.active_source || null;
+  state.cleanResult = session.clean || null;
+  state.masterResult = session.master || null;
+  state.cutResult = session.cut || null;
 
   await refreshWorkspaceFiles();
   applyLanguage(state.lang);
   switchTab(state.activeTab);
-  setAuditionSlot(state.activeSource ? "A" : "A", false);
+  setAuditionSlot("A", false);
   renderAll();
 }
 

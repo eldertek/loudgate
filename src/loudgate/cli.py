@@ -75,6 +75,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_ui.add_argument("--port", type=int, default=DEFAULT_PORT, help="Bind port (default: 8742; 0 for auto).")
     p_ui.add_argument("--workspace-dir", default=".", help="Workspace directory for local audio file selection.")
     p_ui.add_argument("--no-open", action="store_true", help="Do not open browser automatically.")
+    p_ui.add_argument(
+        "--desktop",
+        action="store_true",
+        help="Launch in standalone desktop app window mode (pywebview or Edge/Chrome --app).",
+    )
     return parser
 
 
@@ -93,6 +98,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 port=args.port,
                 workspace_dir=args.workspace_dir,
                 open_browser=not args.no_open,
+                desktop=args.desktop,
             )
         except ValueError as exc:
             parser.error(str(exc))

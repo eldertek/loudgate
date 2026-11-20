@@ -6,11 +6,14 @@
 
 ![loudgate Studio Probe and Waveform](assets/gui-desktop-probe.png)
 
-## Launching the Studio
+# Launching the Studio
 
 ```bash
 # Default launch on http://127.0.0.1:8742/ and open default browser
 loudgate ui
+
+# Standalone desktop app window mode (pywebview or Edge/Chrome --app without browser tabs)
+loudgate ui --desktop
 
 # Standalone entrypoint pointing at a specific media folder without auto-opening browser
 loudgate-ui --workspace-dir ./episodes --port 8742 --no-open
@@ -27,6 +30,15 @@ loudgate ui --port 0
 | `--port` | `8742` | Local TCP port (`0` assigns an available ephemeral port automatically). |
 | `--workspace-dir` | `.` | Root directory safely exposed to the Workspace File selector via `realpath` confinement. |
 | `--no-open` | `false` | Do not open a browser tab automatically on startup. |
+| `--desktop` | `false` | Launch in a standalone desktop application window (`pywebview` if installed, or Chromium/Edge `--app` fallback). |
+
+## Workstation Layout & Modes
+
+- **Top Transport & File Ribbon**: Load `Sample WAV`, `Open File`, or Workspace audio; control DAW transport (`Rewind`, `Play A`, `Play B`, `Stop`, `Loop`) with SMPTE timecode readout and quick Target Preset selection.
+- **Central Dual-Layer Spectrogram & Waveform Bay**: Displays log-frequency STFT spectrogram (`40 Hz - 20 kHz`) over cyan peak/RMS waveform (`Dual`, `Spec`, or `Wave` views). Click to seek or drag the amber `THR` threshold line directly on the waveform in Tab 4.
+- **Right Docked Vertical EBU R128 Meter Bridge**: Live segmented LED columns for Momentary (`M`), Short-Term (`S`), Integrated (`I`), and True Peak (`TP`) with `-60` to `0 dB` scale, `CLIP OK` / `CLIP OVER` latching indicator, and numeric LRA/SNR/DC readouts.
+- **Bottom DAW Status Bar**: Shows sample rate, channels, duration, SNR delta, and one-click `.otio`, `.edl`, `.srt`, `.vtt`, and `.wav` export buttons.
+- **Static Browser Demo Mode**: When static assets (`src/loudgate/ui/static/`) are served directly without a local Python backend (such as `https://eclipse-technology.eu/demos/loudgate/`), the UI automatically activates a pure WebAudio/JavaScript DSP engine (`BROWSER WEBAUDIO DEMO`).
 
 ## Security & Privacy Model
 

@@ -104,8 +104,8 @@ loudgate cut <input> <output_dir> [options]
 ## `loudgate ui` / `loudgate-ui`
 
 ```bash
-loudgate ui [--host 127.0.0.1] [--port 8742] [--workspace-dir .] [--no-open]
-loudgate-ui [--host 127.0.0.1] [--port 8742] [--workspace-dir .] [--no-open]
+loudgate ui [--host 127.0.0.1] [--port 8742] [--workspace-dir .] [--no-open] [--desktop]
+loudgate-ui [--host 127.0.0.1] [--port 8742] [--workspace-dir .] [--no-open] [--desktop]
 ```
 
 ---

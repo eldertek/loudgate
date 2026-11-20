@@ -18,7 +18,7 @@ import pytest
 
 from loudgate.audio_io import AudioBuffer, read_audio, write_audio
 from loudgate.master import MASTER_PRESETS
-from loudgate.ui.server import create_server, validate_loopback_host
+from loudgate.ui.server import create_server, find_desktop_browser, validate_loopback_host
 
 
 @pytest.fixture()
@@ -81,6 +81,7 @@ def test_cli_ui_help_and_loopback_enforcement() -> None:
     assert proc.returncode == 0
     assert "--workspace-dir" in proc.stdout
     assert "--no-open" in proc.stdout
+    assert "--desktop" in proc.stdout
 
     proc_standalone = subprocess.run(
         [sys.executable, "-c", "from loudgate.ui import main; main(['--help'])"],
@@ -91,6 +92,10 @@ def test_cli_ui_help_and_loopback_enforcement() -> None:
     )
     assert proc_standalone.returncode == 0
     assert "loudgate-ui" in proc_standalone.stdout
+    assert "--desktop" in proc_standalone.stdout
+
+    browser_path = find_desktop_browser()
+    assert browser_path is None or Path(browser_path).is_file()
 
     assert validate_loopback_host("localhost") == "127.0.0.1"
     assert validate_loopback_host("127.0.0.1") == "127.0.0.1"
@@ -108,7 +113,16 @@ def test_health_static_csp_and_frontend_hygiene(studio_url: tuple[str, Path]) ->
     assert headers.get("X-Content-Type-Options") == "nosniff"
     assert headers.get("Cache-Control") == "no-store"
 
-    for static_path in ("/", "/styles.css", "/app.js", "/i18n.js", "/waveform.js", "/favicon.svg"):
+    for static_path in (
+        "/",
+        "/styles.css",
+        "/app.js",
+        "/i18n.js",
+        "/waveform.js",
+        "/engine.js",
+        "/demo_dsp.js",
+        "/favicon.svg",
+    ):
         st, hdrs, raw = _http_raw("GET", f"{base_url}{static_path}")
         assert st == 200, f"Failed static asset {static_path}"
         assert len(raw) > 0
@@ -176,6 +190,9 @@ def test_full_studio_dsp_pipeline_sample_clean_master_cut(studio_url: tuple[str,
     assert sample["probe"]["sample_rate"] == 48000
     assert sample["probe"]["max_abs_dc_offset"] > 0.01
     assert sample["waveform"]["bins"] > 100
+    assert sample["waveform"]["spectrogram"]["cols"] > 100
+    assert sample["waveform"]["spectrogram"]["rows"] == 64
+    assert len(sample["waveform"]["spectrogram"]["data_b64"]) > 100
 
     # Verify HTTP Range byte streaming works for browser <audio> seeking
     st_rng, rng_hdrs, rng_bytes = _http_raw(

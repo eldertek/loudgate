@@ -37,20 +37,22 @@ pip install -e ".[dev]"
 
 ## Quick Start: Studio GUI (`loudgate ui`)
 
-Launch the local broadcast console (binds strictly to `127.0.0.1`, default port `8742`):
+Launch the local mastering & spectral workstation (binds strictly to `127.0.0.1`, default port `8742`):
 
 ```bash
 loudgate ui
-# or standalone command:
+# standalone desktop window mode (pywebview or Edge/Chrome --app):
+loudgate ui --desktop
+# or standalone binary:
 loudgate-ui --workspace-dir ./episodes --no-open
 ```
 
-Inside the browser Studio (`EN` / `FR` language toggle built in):
-1. Click **Load Built-in Broadcast Speech+Silence Sample WAV** (or drop/upload any local file or select from `--workspace-dir`).
-2. Inspect the interactive Canvas waveform and **EBU R128 Probe** meters (`LUFS`, `LRA`, `True Peak`, `4x OS Peak`, `SNR`, `DC offset`).
-3. Clean rumble, clicks, hiss, and sibilance in **STFT Spectral Denoiser**, audition **A vs B**, or click **Use as Active Source**.
-4. Normalize in **Broadcast Mastering** (`podcast -14`, `mobile -16`, `broadcast -23 LUFS`, etc. loaded from `MASTER_PRESETS`).
-5. Segment speech vs silence in **Silence Cutter & Timeline** with green/red waveform markers and download `.otio`, `.edl`, `.srt`, `.vtt`, and trimmed `.wav`.
+Inside the DAW console (`EN` / `FR` language toggle built in, with automatic WebAudio demo fallback when hosted statically):
+1. Click **Sample WAV** (or open/drop any local file or select from `--workspace-dir`).
+2. Inspect the **Dual-Layer STFT Spectrogram + Waveform** and **Vertical EBU R128 LED Meter Bridge** (`M`, `S`, `I`, `TP`, `LRA`, `SNR`, `DC offset`, `CLIP` LED).
+3. Clean 38 Hz rumble, clicks, hiss, and sibilance in **Spectral Denoise**, audition **Play A vs Play B**, or click **Use as Source**.
+4. Normalize in **Master R128** (`podcast -14`, `mobile -16`, `broadcast -23 LUFS`, etc. loaded from `MASTER_PRESETS`).
+5. Segment speech vs silence in **Silence Cut & Export** with green Keep / red Trim waveform markers, draggable threshold line, and one-click `.otio`, `.edl`, `.srt`, `.vtt`, and trimmed `.wav` downloads.
 
 ## Quick Start (CLI)
 

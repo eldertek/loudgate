@@ -3,87 +3,83 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>loudgate Studio - Broadcast Audio Post-Production</title>
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  <link rel="stylesheet" href="/styles.css">
+  <title>loudgate Studio - Mastering &amp; Spectral Workstation</title>
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+  <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-  <div class="studio-shell">
-    <header class="studio-header">
-      <div class="brand-group">
-        <img src="/favicon.svg" alt="loudgate logo" class="brand-icon" width="34" height="34">
-        <div class="brand-titles">
-          <div class="brand-row">
-            <h1 class="brand-name">loudgate</h1>
-            <span class="badge badge-indigo" id="studio-version-badge">Studio v0.1.0</span>
-            <span class="badge badge-green" data-i18n="header.localBadge">127.0.0.1 Local DSP</span>
-          </div>
-          <p class="brand-subtitle" data-i18n="header.subtitle">Clean-room EBU R128 mastering, STFT denoising &amp; NLE silence cutting</p>
+  <div class="daw-shell">
+    <!-- Top Compact Transport & File Ribbon -->
+    <header class="daw-ribbon" aria-label="Transport and File Ribbon">
+      <div class="ribbon-brand">
+        <img src="./favicon.svg" alt="loudgate" class="brand-icon" width="24" height="24">
+        <span class="brand-name">loudgate</span>
+        <span class="daw-tag" id="studio-version-badge">v0.1.0</span>
+        <span class="daw-tag daw-tag-engine" id="engine-mode-badge">LOCAL PYTHON+FFMPEG</span>
+        <span class="workspace-pill" id="workspace-dir-pill" title="Workspace directory"></span>
+      </div>
+
+      <div class="ribbon-files">
+        <button type="button" class="daw-btn daw-btn-primary" id="btn-load-sample" data-i18n="source.loadSample">
+          Sample WAV
+        </button>
+
+        <label class="daw-btn daw-btn-secondary file-upload-label" id="dropzone-label">
+          <span data-i18n="source.uploadAudio">Open File</span>
+          <input type="file" id="audio-upload-input" accept=".wav,.flac,.ogg,.aiff,.aif,.mp3,.m4a,.aac,.opus" hidden>
+        </label>
+
+        <div class="workspace-picker">
+          <select id="workspace-file-select" class="daw-select" aria-label="Workspace audio file">
+            <option value="" data-i18n="source.workspacePlaceholder">Workspace file...</option>
+          </select>
+          <button type="button" class="daw-btn daw-btn-secondary" id="btn-load-workspace" data-i18n="source.loadWorkspace">Load</button>
+          <button type="button" class="daw-btn daw-btn-ghost daw-btn-icon" id="btn-refresh-ws" title="Refresh workspace files" aria-label="Refresh workspace files">&#8635;</button>
         </div>
       </div>
 
-      <div class="header-actions">
-        <span class="workspace-pill" id="workspace-dir-pill" title="Workspace directory"></span>
+      <div class="ribbon-transport" role="group" aria-label="DAW Transport">
+        <button type="button" class="daw-btn daw-btn-transport" id="btn-rewind" title="Rewind to 00:00" disabled>|&lt;&lt;</button>
+        <button type="button" class="daw-btn daw-btn-transport active" id="btn-play-a" disabled data-i18n="transport.playA">&#9654; Play A</button>
+        <button type="button" class="daw-btn daw-btn-transport" id="btn-play-b" disabled data-i18n="transport.playB">&#9654; Play B</button>
+        <button type="button" class="daw-btn daw-btn-transport" id="btn-stop" title="Stop playback" disabled>&#9632; Stop</button>
+        <button type="button" class="daw-btn daw-btn-transport" id="btn-loop" aria-pressed="false" title="Loop playback" disabled>&#8634; Loop</button>
+        <div class="timecode-led" id="transport-time-readout" title="SMPTE Timecode / Seconds">00:00:00:00 | 00.000s</div>
+        <audio id="ab-audio-player" controls preload="metadata" class="mini-audio-sink"></audio>
+      </div>
+
+      <div class="ribbon-right">
+        <label class="ribbon-preset-wrap">
+          <span class="micro-lbl" data-i18n="ribbon.target">Target</span>
+          <select id="ribbon-preset-select" class="daw-select" aria-label="Target mastering preset"></select>
+        </label>
         <div class="lang-switch" role="group" aria-label="Language">
           <button type="button" class="lang-btn active" id="lang-en" data-lang="en" aria-pressed="true">EN</button>
           <button type="button" class="lang-btn" id="lang-fr" data-lang="fr" aria-pressed="false">FR</button>
         </div>
-        <button type="button" class="btn btn-ghost btn-sm" id="btn-reset-session" data-i18n="header.reset">Reset</button>
+        <button type="button" class="daw-btn daw-btn-ghost" id="btn-reset-session" data-i18n="header.reset">Reset</button>
       </div>
     </header>
 
-    <section class="panel source-dock" aria-label="Audio Source and Transport">
-      <div class="source-controls-row">
-        <div class="source-actions">
-          <button type="button" class="btn btn-primary" id="btn-load-sample" data-i18n="source.loadSample">
-            Load Built-in Broadcast Speech+Silence Sample WAV
-          </button>
-
-          <label class="btn btn-secondary file-upload-label" id="dropzone-label">
-            <span data-i18n="source.uploadAudio">Upload Audio File</span>
-            <input type="file" id="audio-upload-input" accept=".wav,.flac,.ogg,.aiff,.aif,.mp3,.m4a,.aac,.opus" hidden>
-          </label>
-
-          <div class="workspace-picker">
-            <select id="workspace-file-select" class="input-select" aria-label="Workspace audio file">
-              <option value="" data-i18n="source.workspacePlaceholder">Select workspace file...</option>
-            </select>
-            <button type="button" class="btn btn-secondary" id="btn-load-workspace" data-i18n="source.loadWorkspace">Load</button>
-            <button type="button" class="btn btn-ghost btn-icon" id="btn-refresh-ws" title="Refresh workspace files" aria-label="Refresh workspace files">&#8635;</button>
-          </div>
-        </div>
-
-        <div class="active-source-meta" id="active-source-meta">
-          <span class="empty-source-hint" id="empty-source-hint" data-i18n="source.emptyHint">
-            No audio loaded yet. Load the built-in sample or drop a local audio file.
-          </span>
-        </div>
+    <!-- Active Track Meta Strip + Alert/Busy Bar -->
+    <div class="daw-subbar">
+      <div class="active-source-meta" id="active-source-meta">
+        <span class="empty-source-hint" id="empty-source-hint" data-i18n="source.emptyHint">
+          No audio loaded. Click Sample WAV, Open File, or select from Workspace.
+        </span>
       </div>
-
-      <div class="transport-row">
-        <div class="ab-switch" role="group" aria-label="A/B Audition Switch">
-          <button type="button" class="ab-btn active" id="btn-audition-a" disabled>
-            <span data-i18n="transport.auditionA">A: Original</span>
-          </button>
-          <button type="button" class="ab-btn" id="btn-audition-b" disabled>
-            <span id="audition-b-label" data-i18n="transport.auditionB">B: Processed</span>
-          </button>
-        </div>
-
-        <div class="audio-player-wrap">
-          <audio id="ab-audio-player" controls preload="metadata"></audio>
-        </div>
-
-        <div class="transport-readout" id="transport-time-readout">00:00.00 / 00:00.00</div>
+      <div class="ab-audit-strip">
+        <button type="button" class="ab-btn active" id="btn-audition-a" disabled data-i18n="transport.auditionA">A: Original</button>
+        <button type="button" class="ab-btn" id="btn-audition-b" disabled><span id="audition-b-label" data-i18n="transport.auditionB">B: Processed</span></button>
       </div>
-    </section>
+    </div>
 
     <div class="alert-banner hidden" id="alert-banner" role="alert">
       <div class="alert-body">
         <strong class="alert-title" id="alert-title">Error</strong>
         <span class="alert-message" id="alert-message"></span>
       </div>
-      <button type="button" class="btn btn-ghost btn-sm" id="btn-dismiss-alert" aria-label="Dismiss">&times;</button>
+      <button type="button" class="daw-btn daw-btn-ghost" id="btn-dismiss-alert" aria-label="Dismiss">&times;</button>
     </div>
 
     <div class="status-toast hidden" id="status-toast" role="status" aria-live="polite">
@@ -91,393 +87,440 @@
       <span id="status-toast-text">Processing...</span>
     </div>
 
-    <nav class="studio-tabs" role="tablist" aria-label="Studio Modules">
-      <button type="button" class="tab-btn active" role="tab" id="tab-btn-probe" data-tab="probe" aria-selected="true" aria-controls="panel-probe">
-        <span class="tab-num">01</span>
-        <span data-i18n="tabs.probe">EBU R128 Probe &amp; Waveform</span>
-      </button>
-      <button type="button" class="tab-btn" role="tab" id="tab-btn-clean" data-tab="clean" aria-selected="false" aria-controls="panel-clean">
-        <span class="tab-num">02</span>
-        <span data-i18n="tabs.clean">STFT Spectral Denoiser</span>
-      </button>
-      <button type="button" class="tab-btn" role="tab" id="tab-btn-master" data-tab="master" aria-selected="false" aria-controls="panel-master">
-        <span class="tab-num">03</span>
-        <span data-i18n="tabs.master">Broadcast Mastering</span>
-      </button>
-      <button type="button" class="tab-btn" role="tab" id="tab-btn-cut" data-tab="cut" aria-selected="false" aria-controls="panel-cut">
-        <span class="tab-num">04</span>
-        <span data-i18n="tabs.cut">Silence Cutter &amp; Timeline</span>
-      </button>
-    </nav>
+    <!-- Main Docked Workstation Grid -->
+    <div class="workstation-grid">
+      <div class="workstation-main">
+        <!-- Central Dual-Layer Spectrogram & Waveform Canvas -->
+        <section class="daw-pane scope-bay" aria-label="Dual-Layer Spectrogram and Waveform">
+          <div class="scope-header">
+            <div class="scope-title-group">
+              <span class="pane-title" id="waveform-mode-title" data-i18n="waveform.title">SPECTROGRAM &amp; WAVEFORM</span>
+              <span class="daw-tag" id="waveform-track-badge">--</span>
+            </div>
+            <div class="scope-view-switch" role="group" aria-label="Display Layer">
+              <button type="button" class="view-btn active" data-view="dual" id="view-dual">Dual</button>
+              <button type="button" class="view-btn" data-view="spec" id="view-spec">Spec</button>
+              <button type="button" class="view-btn" data-view="wave" id="view-wave">Wave</button>
+            </div>
+            <div class="waveform-legend" id="waveform-legend">
+              <span class="legend-item"><i class="swatch swatch-peak"></i><span data-i18n="waveform.peakLegend">Waveform</span></span>
+              <span class="legend-item hidden" id="legend-thresh"><i class="swatch swatch-thresh"></i><span data-i18n="waveform.threshLegend">Thresh dB</span></span>
+              <span class="legend-item hidden" id="legend-kept"><i class="swatch swatch-kept"></i><span data-i18n="waveform.keptLegend">Keep</span></span>
+              <span class="legend-item hidden" id="legend-cut"><i class="swatch swatch-cut"></i><span data-i18n="waveform.cutLegend">Trim</span></span>
+            </div>
+            <div class="waveform-cursor-info" id="waveform-cursor-info">00:00.000 | -- Hz</div>
+          </div>
+          <div class="waveform-canvas-wrap" id="waveform-canvas-wrap">
+            <canvas id="waveform-canvas" height="260"></canvas>
+          </div>
+        </section>
 
-    <section class="panel waveform-stage" aria-label="Interactive Waveform Display">
-      <div class="waveform-header">
-        <div class="waveform-title-group">
-          <h2 class="panel-title" id="waveform-mode-title" data-i18n="waveform.title">Waveform Monitor</h2>
-          <span class="badge badge-muted" id="waveform-track-badge">Source</span>
-        </div>
-        <div class="waveform-legend" id="waveform-legend">
-          <span class="legend-item"><i class="swatch swatch-peak"></i><span data-i18n="waveform.peakLegend">Peak Envelope</span></span>
-          <span class="legend-item"><i class="swatch swatch-rms"></i><span data-i18n="waveform.rmsLegend">RMS Body</span></span>
-          <span class="legend-item hidden" id="legend-kept"><i class="swatch swatch-kept"></i><span data-i18n="waveform.keptLegend">Kept Speech</span></span>
-          <span class="legend-item hidden" id="legend-cut"><i class="swatch swatch-cut"></i><span data-i18n="waveform.cutLegend">Cut Silence</span></span>
-        </div>
-        <div class="waveform-cursor-info" id="waveform-cursor-info">--:--.--</div>
+        <!-- Compact Tabbed Module Rack -->
+        <section class="daw-pane module-rack" aria-label="DSP Processing Rack">
+          <nav class="rack-tabs" role="tablist" aria-label="Studio Modules">
+            <button type="button" class="tab-btn active" role="tab" id="tab-btn-probe" data-tab="probe" aria-selected="true" aria-controls="panel-probe">
+              <span class="tab-num">1</span>
+              <span data-i18n="tabs.probe">Probe</span>
+            </button>
+            <button type="button" class="tab-btn" role="tab" id="tab-btn-clean" data-tab="clean" aria-selected="false" aria-controls="panel-clean">
+              <span class="tab-num">2</span>
+              <span data-i18n="tabs.clean">Spectral Denoise</span>
+            </button>
+            <button type="button" class="tab-btn" role="tab" id="tab-btn-master" data-tab="master" aria-selected="false" aria-controls="panel-master">
+              <span class="tab-num">3</span>
+              <span data-i18n="tabs.master">Master R128</span>
+            </button>
+            <button type="button" class="tab-btn" role="tab" id="tab-btn-cut" data-tab="cut" aria-selected="false" aria-controls="panel-cut">
+              <span class="tab-num">4</span>
+              <span data-i18n="tabs.cut">Silence Cut &amp; Export</span>
+            </button>
+          </nav>
+
+          <main class="tab-panels">
+            <!-- TAB 1: PROBE -->
+            <section class="tab-panel active" id="panel-probe" role="tabpanel" aria-labelledby="tab-btn-probe">
+              <div class="rack-toolbar">
+                <div class="rack-heading-group">
+                  <h3 class="pane-heading" data-i18n="probe.heading">EBU R128 Audit &amp; DSP Diagnostics</h3>
+                  <span class="pane-sub" data-i18n="probe.subheading">FFmpeg ebur128 + 4x polyphase oversampled true peak + SNR &amp; DC offset</span>
+                </div>
+                <div class="toolbar-controls">
+                  <label class="inline-field">
+                    <span data-i18n="probe.clipThresh">Clip Thresh</span>
+                    <input type="number" id="probe-clip-threshold" class="daw-input daw-input-sm" value="0.999" min="0.01" max="1.0" step="0.001">
+                  </label>
+                  <button type="button" class="daw-btn daw-btn-primary" id="btn-run-probe" disabled data-i18n="probe.runBtn">Re-run Probe</button>
+                  <button type="button" class="daw-btn daw-btn-secondary" id="btn-download-probe-json" disabled data-i18n="probe.exportJson">JSON</button>
+                </div>
+              </div>
+              <div class="metrics-matrix" id="probe-metrics-grid"></div>
+            </section>
+
+            <!-- TAB 2: CLEAN -->
+            <section class="tab-panel" id="panel-clean" role="tabpanel" aria-labelledby="tab-btn-clean" hidden>
+              <div class="rack-split">
+                <form class="rack-controls" id="clean-form">
+                  <div class="rack-heading-group">
+                    <h3 class="pane-heading" data-i18n="clean.heading">STFT Spectral Denoise &amp; Cleanup</h3>
+                    <span class="pane-sub" data-i18n="clean.subheading">DC removal, zero-phase Butterworth HPF, MAD de-clicker, WOLA Wiener filter</span>
+                  </div>
+
+                  <div class="param-grid">
+                    <label class="param-cell">
+                      <span class="param-lbl"><span data-i18n="clean.highpass">HPF (Hz)</span> <strong class="param-val" id="clean-hpf-readout">80 Hz</strong></span>
+                      <input type="range" id="clean-highpass-range" min="0" max="300" step="5" value="80">
+                      <input type="number" id="clean-highpass-hz" class="daw-input" min="0" max="2000" step="1" value="80">
+                    </label>
+
+                    <label class="param-cell">
+                      <span class="param-lbl"><span data-i18n="clean.strength">Strength</span> <strong class="param-val" id="clean-strength-readout">1.00</strong></span>
+                      <input type="range" id="clean-strength-range" min="0" max="2.5" step="0.05" value="1.0">
+                      <input type="number" id="clean-denoise-strength" class="daw-input" min="0" max="5" step="0.05" value="1.0">
+                    </label>
+
+                    <label class="param-cell">
+                      <span class="param-lbl"><span data-i18n="clean.floor">Floor (dB)</span> <strong class="param-val" id="clean-floor-readout">-28 dB</strong></span>
+                      <input type="range" id="clean-floor-range" min="-60" max="-6" step="1" value="-28">
+                      <input type="number" id="clean-spectral-floor" class="daw-input" min="-90" max="0" step="1" value="-28">
+                    </label>
+
+                    <div class="param-row-2">
+                      <label class="param-cell">
+                        <span class="param-lbl" data-i18n="clean.nfft">FFT Size</span>
+                        <select id="clean-n-fft" class="daw-select">
+                          <option value="512">512</option>
+                          <option value="1024">1024</option>
+                          <option value="2048" selected>2048</option>
+                          <option value="4096">4096</option>
+                        </select>
+                      </label>
+                      <label class="param-cell">
+                        <span class="param-lbl" data-i18n="clean.hop">Hop Length</span>
+                        <input type="number" id="clean-hop-length" class="daw-input" min="1" max="4096" step="1" value="512">
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="toggle-strip">
+                    <label class="daw-toggle"><input type="checkbox" id="clean-declick" checked><span data-i18n="clean.declick">De-click</span></label>
+                    <label class="daw-toggle"><input type="checkbox" id="clean-remove-dc" checked><span data-i18n="clean.removeDc">DC Trim</span></label>
+                    <label class="daw-toggle"><input type="checkbox" id="clean-deess"><span data-i18n="clean.deess">De-ess</span></label>
+                    <label class="daw-toggle"><input type="checkbox" id="clean-gate"><span data-i18n="clean.gate">Gate</span></label>
+                  </div>
+
+                  <div class="rack-submit-row">
+                    <button type="submit" class="daw-btn daw-btn-primary daw-btn-block" id="btn-run-clean" disabled data-i18n="clean.runBtn">
+                      Process Spectral Clean
+                    </button>
+                  </div>
+                </form>
+
+                <div class="rack-results" id="clean-results-panel">
+                  <div class="results-bar">
+                    <span class="pane-heading" data-i18n="clean.resultsTitle">Before / After DSP Delta</span>
+                    <div class="result-actions">
+                      <button type="button" class="daw-btn daw-btn-secondary" id="btn-clean-play-a" disabled data-i18n="common.playOriginal">Play A</button>
+                      <button type="button" class="daw-btn daw-btn-secondary" id="btn-clean-play-b" disabled data-i18n="clean.playCleaned">Play B</button>
+                      <a class="daw-btn daw-btn-secondary disabled-link" id="link-download-cleaned" href="#" download aria-disabled="true" data-i18n="clean.downloadWav">Save WAV</a>
+                      <button type="button" class="daw-btn daw-btn-cyan" id="btn-use-cleaned" disabled data-i18n="common.useAsSource">Use as Source</button>
+                    </div>
+                  </div>
+                  <div class="results-empty" id="clean-results-empty" data-i18n="clean.emptyResults">
+                    Run STFT Spectral Clean to verify Before/After SNR, noise floor attenuation, and Parseval energy conservation.
+                  </div>
+                  <div class="results-body hidden" id="clean-results-body">
+                    <div class="diff-matrix" id="clean-diff-grid"></div>
+                    <div class="stats-strip" id="clean-dsp-stats"></div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- TAB 3: MASTER -->
+            <section class="tab-panel" id="panel-master" role="tabpanel" aria-labelledby="tab-btn-master" hidden>
+              <div class="rack-split">
+                <form class="rack-controls" id="master-form">
+                  <div class="rack-heading-group">
+                    <h3 class="pane-heading" data-i18n="master.heading">Two-Pass EBU R128 Mastering</h3>
+                    <span class="pane-sub" data-i18n="master.subheading">Linear loudnorm + post-render ebur128 + 4x oversampled true-peak limiter</span>
+                  </div>
+
+                  <div class="param-cell">
+                    <span class="param-lbl" data-i18n="master.presets">Target Presets (MASTER_PRESETS)</span>
+                    <div class="preset-strip" id="master-presets-rack"></div>
+                  </div>
+
+                  <div class="param-grid">
+                    <div class="param-row-2">
+                      <label class="param-cell">
+                        <span class="param-lbl" data-i18n="master.targetLufs">Target LUFS</span>
+                        <input type="number" id="master-target-lufs" class="daw-input" min="-50" max="-3" step="0.5" value="-14">
+                      </label>
+                      <label class="param-cell">
+                        <span class="param-lbl" data-i18n="master.maxTp">Ceiling dBTP</span>
+                        <input type="number" id="master-max-tp" class="daw-input" min="-12" max="0" step="0.1" value="-1.0">
+                      </label>
+                    </div>
+                    <div class="param-row-2">
+                      <label class="param-cell">
+                        <span class="param-lbl" data-i18n="master.targetLra">Target LRA (LU)</span>
+                        <input type="number" id="master-target-lra" class="daw-input" min="1" max="30" step="0.5" value="11.0">
+                      </label>
+                      <label class="param-cell">
+                        <span class="param-lbl" data-i18n="master.format">Format</span>
+                        <select id="master-format" class="daw-select">
+                          <option value="wav" selected>WAV (PCM 24)</option>
+                          <option value="flac">FLAC</option>
+                          <option value="mp3">MP3</option>
+                          <option value="m4a">M4A (AAC)</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div class="param-row-2">
+                      <label class="param-cell">
+                        <span class="param-lbl" data-i18n="master.bitrate">Bitrate</span>
+                        <select id="master-bitrate" class="daw-select">
+                          <option value="128k">128k</option>
+                          <option value="192k" selected>192k</option>
+                          <option value="256k">256k</option>
+                          <option value="320k">320k</option>
+                        </select>
+                      </label>
+                      <label class="daw-toggle align-end">
+                        <input type="checkbox" id="master-dual-mono">
+                        <span data-i18n="master.dualMono">Dual Mono</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="rack-submit-row">
+                    <button type="submit" class="daw-btn daw-btn-primary daw-btn-block" id="btn-run-master" disabled data-i18n="master.runBtn">
+                      Render Broadcast Master
+                    </button>
+                  </div>
+                </form>
+
+                <div class="rack-results" id="master-results-panel">
+                  <div class="results-bar">
+                    <span class="pane-heading" data-i18n="master.resultsTitle">Post-Render EBU R128 Verification</span>
+                    <div class="result-actions">
+                      <button type="button" class="daw-btn daw-btn-secondary" id="btn-master-play-a" disabled data-i18n="common.playOriginal">Play A</button>
+                      <button type="button" class="daw-btn daw-btn-secondary" id="btn-master-play-b" disabled data-i18n="master.playMastered">Play B</button>
+                      <a class="daw-btn daw-btn-secondary disabled-link" id="link-download-mastered" href="#" download aria-disabled="true" data-i18n="master.download">Save Master</a>
+                      <button type="button" class="daw-btn daw-btn-cyan" id="btn-use-mastered" disabled data-i18n="common.useAsSource">Use as Source</button>
+                    </div>
+                  </div>
+                  <div class="results-empty" id="master-results-empty" data-i18n="master.emptyResults">
+                    Select a target preset and render Two-Pass Mastering to inspect EBU R128 compliance and audition A vs B.
+                  </div>
+                  <div class="results-body hidden" id="master-results-body">
+                    <div class="compliance-bar" id="master-compliance-bar"></div>
+                    <div class="diff-matrix" id="master-diff-grid"></div>
+                    <div class="stats-strip" id="master-pass-stats"></div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- TAB 4: CUT -->
+            <section class="tab-panel" id="panel-cut" role="tabpanel" aria-labelledby="tab-btn-cut" hidden>
+              <div class="rack-split">
+                <form class="rack-controls" id="cut-form">
+                  <div class="rack-heading-group">
+                    <h3 class="pane-heading" data-i18n="cut.heading">VAD Silence Cut &amp; Timeline Export</h3>
+                    <span class="pane-sub" data-i18n="cut.subheading">RMS + ZCR segmentation; drag threshold line directly on waveform</span>
+                  </div>
+
+                  <div class="param-grid">
+                    <label class="param-cell">
+                      <span class="param-lbl"><span data-i18n="cut.thresh">Threshold (dBFS)</span> <strong class="param-val" id="cut-thresh-readout">-40 dB</strong></span>
+                      <input type="range" id="cut-thresh-range" min="-70" max="-5" step="1" value="-40">
+                      <input type="number" id="cut-thresh-db" class="daw-input" min="-90" max="0" step="0.5" value="-40">
+                    </label>
+
+                    <div class="param-row-2">
+                      <label class="param-cell">
+                        <span class="param-lbl" data-i18n="cut.minSilence">Min Silence (ms)</span>
+                        <input type="number" id="cut-min-silence" class="daw-input" min="10" max="10000" step="10" value="400">
+                      </label>
+                      <label class="param-cell">
+                        <span class="param-lbl" data-i18n="cut.minSpeech">Min Speech (ms)</span>
+                        <input type="number" id="cut-min-speech" class="daw-input" min="10" max="10000" step="10" value="150">
+                      </label>
+                    </div>
+
+                    <div class="param-row-2">
+                      <label class="param-cell">
+                        <span class="param-lbl" data-i18n="cut.padMs">Edge Pad (ms)</span>
+                        <input type="number" id="cut-pad-ms" class="daw-input" min="0" max="2000" step="10" value="80">
+                      </label>
+                      <label class="param-cell">
+                        <span class="param-lbl" data-i18n="cut.fps">Timeline FPS</span>
+                        <select id="cut-fps" class="daw-select">
+                          <option value="23.976">23.976</option>
+                          <option value="24">24</option>
+                          <option value="25" selected>25</option>
+                          <option value="29.97">29.97</option>
+                          <option value="30">30</option>
+                          <option value="50">50</option>
+                          <option value="60">60</option>
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="toggle-strip">
+                    <label class="daw-toggle">
+                      <input type="checkbox" id="cut-render-audio" checked>
+                      <span data-i18n="cut.renderAudio">Render Trimmed WAV (atrim + concat)</span>
+                    </label>
+                  </div>
+
+                  <div class="rack-submit-row">
+                    <button type="submit" class="daw-btn daw-btn-primary daw-btn-block" id="btn-run-cut" disabled data-i18n="cut.runBtn">
+                      Detect &amp; Cut Silences
+                    </button>
+                  </div>
+                </form>
+
+                <div class="rack-results" id="cut-results-panel">
+                  <div class="results-bar">
+                    <span class="pane-heading" data-i18n="cut.resultsTitle">Cue Segments &amp; NLE Exports</span>
+                    <div class="result-actions">
+                      <button type="button" class="daw-btn daw-btn-secondary" id="btn-cut-play-a" disabled data-i18n="common.playOriginal">Play A</button>
+                      <button type="button" class="daw-btn daw-btn-secondary" id="btn-cut-play-b" disabled data-i18n="cut.playCut">Play B</button>
+                    </div>
+                  </div>
+
+                  <div class="results-empty" id="cut-results-empty" data-i18n="cut.emptyResults">
+                    Run Silence Cut to overlay green Keep / red Trim regions and export .OTIO, .EDL, .SRT, .VTT, and trimmed .WAV.
+                  </div>
+
+                  <div class="results-body hidden" id="cut-results-body">
+                    <div class="kpi-strip" id="cut-kpi-strip"></div>
+
+                    <div class="exports-bar" id="cut-exports-bar">
+                      <a class="daw-btn daw-btn-secondary disabled-link" id="export-link-otio" href="#" download aria-disabled="true">.OTIO</a>
+                      <a class="daw-btn daw-btn-secondary disabled-link" id="export-link-edl" href="#" download aria-disabled="true">.EDL</a>
+                      <a class="daw-btn daw-btn-secondary disabled-link" id="export-link-srt" href="#" download aria-disabled="true">.SRT</a>
+                      <a class="daw-btn daw-btn-secondary disabled-link" id="export-link-vtt" href="#" download aria-disabled="true">.VTT</a>
+                      <a class="daw-btn daw-btn-primary disabled-link" id="export-link-wav" href="#" download aria-disabled="true" data-i18n="cut.downloadWav">.WAV Cut</a>
+                    </div>
+
+                    <div class="table-scroll">
+                      <table class="segments-table" id="cut-segments-table">
+                        <thead>
+                          <tr>
+                            <th>#</th>
+                            <th data-i18n="cut.colStart">Start</th>
+                            <th data-i18n="cut.colEnd">End</th>
+                            <th data-i18n="cut.colDuration">Duration</th>
+                            <th data-i18n="cut.colRms">RMS dBFS</th>
+                            <th data-i18n="cut.colZcr">ZCR</th>
+                          </tr>
+                        </thead>
+                        <tbody id="cut-segments-tbody"></tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </main>
+        </section>
       </div>
-      <div class="waveform-canvas-wrap" id="waveform-canvas-wrap">
-        <canvas id="waveform-canvas" height="170"></canvas>
+
+      <!-- Right Docked Vertical EBU R128 Meter Bridge -->
+      <aside class="daw-pane meter-bridge" aria-label="EBU R128 Vertical Meter Bridge">
+        <div class="bridge-header">
+          <span class="pane-title" data-i18n="bridge.title">EBU R128 BRIDGE</span>
+          <span class="clip-led" id="clip-led-badge" title="True Peak / Oversampled Clip Indicator">CLIP OK</span>
+        </div>
+
+        <div class="led-columns-bay">
+          <div class="led-scale" aria-hidden="true">
+            <span>0</span>
+            <span>-1</span>
+            <span>-14</span>
+            <span>-16</span>
+            <span>-23</span>
+            <span>-36</span>
+            <span>-48</span>
+            <span>-60</span>
+          </div>
+
+          <div class="led-col-wrap">
+            <div class="led-column" id="led-col-m" aria-label="Momentary LUFS"></div>
+            <span class="led-col-lbl">M</span>
+            <span class="led-col-num" id="led-num-m">--</span>
+          </div>
+
+          <div class="led-col-wrap">
+            <div class="led-column" id="led-col-s" aria-label="Short-Term LUFS"></div>
+            <span class="led-col-lbl">S</span>
+            <span class="led-col-num" id="led-num-s">--</span>
+          </div>
+
+          <div class="led-col-wrap">
+            <div class="led-column" id="led-col-i" aria-label="Integrated LUFS"></div>
+            <span class="led-col-lbl">I</span>
+            <span class="led-col-num" id="led-num-i">--</span>
+          </div>
+
+          <div class="led-col-wrap">
+            <div class="led-column" id="led-col-tp" aria-label="True Peak dBTP"></div>
+            <span class="led-col-lbl">TP</span>
+            <span class="led-col-num" id="led-num-tp">--</span>
+          </div>
+        </div>
+
+        <div class="bridge-readouts">
+          <div class="bridge-row">
+            <span class="bridge-k">INT LUFS</span>
+            <strong class="bridge-v" id="meter-lufs-val">-- LUFS</strong>
+          </div>
+          <div class="bridge-row">
+            <span class="bridge-k">LRA</span>
+            <strong class="bridge-v" id="bridge-lra-val">-- LU</strong>
+          </div>
+          <div class="bridge-row">
+            <span class="bridge-k">TRUE PEAK</span>
+            <strong class="bridge-v" id="meter-tp-val">-- dBTP</strong>
+          </div>
+          <div class="bridge-row">
+            <span class="bridge-k">4x OS TP</span>
+            <strong class="bridge-v" id="bridge-ostp-val">-- dBTP</strong>
+          </div>
+          <div class="bridge-row">
+            <span class="bridge-k">EST SNR</span>
+            <strong class="bridge-v" id="meter-snr-val">-- dB</strong>
+          </div>
+          <div class="bridge-row">
+            <span class="bridge-k">DC OFFSET</span>
+            <strong class="bridge-v" id="bridge-dc-val">--</strong>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- Bottom DAW Status Bar -->
+    <footer class="daw-statusbar" aria-label="DAW Status and Quick Exports">
+      <div class="statusbar-left" id="statusbar-info">
+        <span id="status-fs-ch">-- Hz | -- ch | --s</span>
+        <span class="status-sep">|</span>
+        <span id="status-snr-delta">SNR: --</span>
       </div>
-    </section>
-
-    <main class="tab-panels">
-      <!-- TAB 1: PROBE -->
-      <section class="tab-panel active" id="panel-probe" role="tabpanel" aria-labelledby="tab-btn-probe">
-        <div class="panel">
-          <div class="panel-toolbar">
-            <div>
-              <h3 class="panel-heading" data-i18n="probe.heading">EBU R128 Broadcast Audit &amp; DSP Diagnostics</h3>
-              <p class="panel-sub" data-i18n="probe.subheading">FFmpeg ebur128 integrated loudness + 4x polyphase oversampled inter-sample true peak + SNR &amp; DC offset.</p>
-            </div>
-            <div class="toolbar-controls">
-              <label class="inline-field">
-                <span data-i18n="probe.clipThresh">Clip Threshold</span>
-                <input type="number" id="probe-clip-threshold" class="input-num input-sm" value="0.999" min="0.01" max="1.0" step="0.001">
-              </label>
-              <button type="button" class="btn btn-primary" id="btn-run-probe" disabled data-i18n="probe.runBtn">Re-run Probe</button>
-              <button type="button" class="btn btn-secondary" id="btn-download-probe-json" disabled data-i18n="probe.exportJson">Export JSON</button>
-            </div>
-          </div>
-
-          <div class="meter-rack" id="probe-meter-rack">
-            <div class="meter-card">
-              <div class="meter-top">
-                <span class="meter-label" data-i18n="probe.integratedLufs">Integrated Loudness</span>
-                <span class="meter-value" id="meter-lufs-val">-- LUFS</span>
-              </div>
-              <div class="meter-track">
-                <div class="meter-fill" id="meter-lufs-bar"></div>
-                <span class="meter-tick tick-23" title="-23 LUFS EBU R128">-23</span>
-                <span class="meter-tick tick-16" title="-16 LUFS Mobile">-16</span>
-                <span class="meter-tick tick-14" title="-14 LUFS Podcast">-14</span>
-              </div>
-              <div class="meter-scale"><span>-60 LUFS</span><span>-23</span><span>-14</span><span>0</span></div>
-            </div>
-
-            <div class="meter-card">
-              <div class="meter-top">
-                <span class="meter-label" data-i18n="probe.truePeak">True Peak / 4x OS Peak</span>
-                <span class="meter-value" id="meter-tp-val">-- dBTP</span>
-              </div>
-              <div class="meter-track">
-                <div class="meter-fill" id="meter-tp-bar"></div>
-                <span class="meter-tick tick-tp1" title="-1.0 dBTP Ceiling">-1.0</span>
-              </div>
-              <div class="meter-scale"><span>-40 dBTP</span><span>-12</span><span>-1.0</span><span>+3</span></div>
-            </div>
-
-            <div class="meter-card">
-              <div class="meter-top">
-                <span class="meter-label" data-i18n="probe.snr">Estimated SNR</span>
-                <span class="meter-value" id="meter-snr-val">-- dB</span>
-              </div>
-              <div class="meter-track">
-                <div class="meter-fill" id="meter-snr-bar"></div>
-              </div>
-              <div class="meter-scale"><span>0 dB</span><span>20 dB</span><span>40 dB</span><span>60+ dB</span></div>
-            </div>
-          </div>
-
-          <div class="metrics-grid" id="probe-metrics-grid"></div>
-        </div>
-      </section>
-
-      <!-- TAB 2: CLEAN -->
-      <section class="tab-panel" id="panel-clean" role="tabpanel" aria-labelledby="tab-btn-clean" hidden>
-        <div class="split-layout">
-          <form class="panel control-panel" id="clean-form">
-            <h3 class="panel-heading" data-i18n="clean.heading">STFT Spectral Denoiser &amp; Cleanup Chain</h3>
-            <p class="panel-sub" data-i18n="clean.subheading">DC removal, zero-phase Butterworth high-pass, MAD de-clicker, and tight-frame WOLA Wiener denoising.</p>
-
-            <div class="form-grid">
-              <label class="field">
-                <span class="field-label"><span data-i18n="clean.highpass">High-pass Cutoff (Hz)</span> <strong class="field-val" id="clean-hpf-readout">80 Hz</strong></span>
-                <input type="range" id="clean-highpass-range" min="0" max="300" step="5" value="80">
-                <input type="number" id="clean-highpass-hz" class="input-num" min="0" max="2000" step="1" value="80">
-              </label>
-
-              <label class="field">
-                <span class="field-label"><span data-i18n="clean.strength">Denoise Strength</span> <strong class="field-val" id="clean-strength-readout">1.00</strong></span>
-                <input type="range" id="clean-strength-range" min="0" max="2.5" step="0.05" value="1.0">
-                <input type="number" id="clean-denoise-strength" class="input-num" min="0" max="5" step="0.05" value="1.0">
-              </label>
-
-              <label class="field">
-                <span class="field-label"><span data-i18n="clean.floor">Spectral Floor (dB)</span> <strong class="field-val" id="clean-floor-readout">-28 dB</strong></span>
-                <input type="range" id="clean-floor-range" min="-60" max="-6" step="1" value="-28">
-                <input type="number" id="clean-spectral-floor" class="input-num" min="-90" max="0" step="1" value="-28">
-              </label>
-
-              <div class="field-row-2">
-                <label class="field">
-                  <span class="field-label" data-i18n="clean.nfft">FFT Size</span>
-                  <select id="clean-n-fft" class="input-select">
-                    <option value="512">512</option>
-                    <option value="1024">1024</option>
-                    <option value="2048" selected>2048</option>
-                    <option value="4096">4096</option>
-                  </select>
-                </label>
-
-                <label class="field">
-                  <span class="field-label" data-i18n="clean.hop">Hop Length</span>
-                  <input type="number" id="clean-hop-length" class="input-num" min="1" max="4096" step="1" value="512">
-                </label>
-              </div>
-            </div>
-
-            <div class="toggle-grid">
-              <label class="toggle-chip">
-                <input type="checkbox" id="clean-declick" checked>
-                <span data-i18n="clean.declick">De-clicker (MAD)</span>
-              </label>
-              <label class="toggle-chip">
-                <input type="checkbox" id="clean-remove-dc" checked>
-                <span data-i18n="clean.removeDc">Remove DC Offset</span>
-              </label>
-              <label class="toggle-chip">
-                <input type="checkbox" id="clean-deess">
-                <span data-i18n="clean.deess">Split-band De-esser</span>
-              </label>
-              <label class="toggle-chip">
-                <input type="checkbox" id="clean-gate">
-                <span data-i18n="clean.gate">Downward Noise Gate</span>
-              </label>
-            </div>
-
-            <div class="form-actions">
-              <button type="submit" class="btn btn-primary btn-block" id="btn-run-clean" disabled data-i18n="clean.runBtn">
-                Run Spectral Clean
-              </button>
-            </div>
-          </form>
-
-          <div class="panel results-panel" id="clean-results-panel">
-            <div class="results-header">
-              <h3 class="panel-heading" data-i18n="clean.resultsTitle">Before vs After Cleanup Diagnostics</h3>
-              <div class="result-actions">
-                <button type="button" class="btn btn-secondary btn-sm" id="btn-clean-play-a" disabled data-i18n="common.playOriginal">Play Original (A)</button>
-                <button type="button" class="btn btn-secondary btn-sm" id="btn-clean-play-b" disabled data-i18n="clean.playCleaned">Play Cleaned (B)</button>
-                <a class="btn btn-secondary btn-sm disabled-link" id="link-download-cleaned" href="#" download aria-disabled="true" data-i18n="clean.downloadWav">Download Cleaned WAV</a>
-                <button type="button" class="btn btn-accent-outline btn-sm" id="btn-use-cleaned" disabled data-i18n="common.useAsSource">Use as Active Source</button>
-              </div>
-            </div>
-            <div class="results-empty" id="clean-results-empty" data-i18n="clean.emptyResults">
-              Adjust cleanup controls and run STFT Spectral Clean to inspect Before/After LUFS, SNR improvement, and Parseval verification.
-            </div>
-            <div class="results-body hidden" id="clean-results-body">
-              <div class="diff-grid" id="clean-diff-grid"></div>
-              <div class="stats-strip" id="clean-dsp-stats"></div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- TAB 3: MASTER -->
-      <section class="tab-panel" id="panel-master" role="tabpanel" aria-labelledby="tab-btn-master" hidden>
-        <div class="split-layout">
-          <form class="panel control-panel" id="master-form">
-            <h3 class="panel-heading" data-i18n="master.heading">Two-Pass EBU R128 Broadcast Mastering</h3>
-            <p class="panel-sub" data-i18n="master.subheading">Two-pass linear FFmpeg loudnorm with post-render ebur128 verification and 4x oversampled true-peak safety limiter.</p>
-
-            <div class="field">
-              <span class="field-label" data-i18n="master.presets">Target Presets (from MASTER_PRESETS)</span>
-              <div class="preset-pills" id="master-presets-rack"></div>
-            </div>
-
-            <div class="form-grid">
-              <div class="field-row-2">
-                <label class="field">
-                  <span class="field-label" data-i18n="master.targetLufs">Target LUFS</span>
-                  <input type="number" id="master-target-lufs" class="input-num" min="-50" max="-3" step="0.5" value="-14">
-                </label>
-
-                <label class="field">
-                  <span class="field-label" data-i18n="master.maxTp">Max True Peak (dBTP)</span>
-                  <input type="number" id="master-max-tp" class="input-num" min="-12" max="0" step="0.1" value="-1.0">
-                </label>
-              </div>
-
-              <div class="field-row-2">
-                <label class="field">
-                  <span class="field-label" data-i18n="master.targetLra">Target LRA (LU)</span>
-                  <input type="number" id="master-target-lra" class="input-num" min="1" max="30" step="0.5" value="11.0">
-                </label>
-
-                <label class="field">
-                  <span class="field-label" data-i18n="master.format">Output Format</span>
-                  <select id="master-format" class="input-select">
-                    <option value="wav" selected>WAV (PCM 24-bit)</option>
-                    <option value="flac">FLAC (Lossless)</option>
-                    <option value="mp3">MP3</option>
-                    <option value="m4a">M4A (AAC)</option>
-                  </select>
-                </label>
-              </div>
-
-              <div class="field-row-2">
-                <label class="field">
-                  <span class="field-label" data-i18n="master.bitrate">Bitrate (Lossy)</span>
-                  <select id="master-bitrate" class="input-select">
-                    <option value="128k">128k</option>
-                    <option value="192k" selected>192k</option>
-                    <option value="256k">256k</option>
-                    <option value="320k">320k</option>
-                  </select>
-                </label>
-
-                <label class="toggle-chip align-end">
-                  <input type="checkbox" id="master-dual-mono">
-                  <span data-i18n="master.dualMono">Dual Mono Loudness</span>
-                </label>
-              </div>
-            </div>
-
-            <div class="form-actions">
-              <button type="submit" class="btn btn-primary btn-block" id="btn-run-master" disabled data-i18n="master.runBtn">
-                Run Broadcast Master
-              </button>
-            </div>
-          </form>
-
-          <div class="panel results-panel" id="master-results-panel">
-            <div class="results-header">
-              <h3 class="panel-heading" data-i18n="master.resultsTitle">Post-Render EBU R128 Compliance</h3>
-              <div class="result-actions">
-                <button type="button" class="btn btn-secondary btn-sm" id="btn-master-play-a" disabled data-i18n="common.playOriginal">Play Original (A)</button>
-                <button type="button" class="btn btn-secondary btn-sm" id="btn-master-play-b" disabled data-i18n="master.playMastered">Play Mastered (B)</button>
-                <a class="btn btn-secondary btn-sm disabled-link" id="link-download-mastered" href="#" download aria-disabled="true" data-i18n="master.download">Download Mastered</a>
-                <button type="button" class="btn btn-accent-outline btn-sm" id="btn-use-mastered" disabled data-i18n="common.useAsSource">Use as Active Source</button>
-              </div>
-            </div>
-            <div class="results-empty" id="master-results-empty" data-i18n="master.emptyResults">
-              Choose a broadcast/podcast preset and run Two-Pass Mastering to audition A/B loudness and verify True Peak compliance.
-            </div>
-            <div class="results-body hidden" id="master-results-body">
-              <div class="compliance-bar" id="master-compliance-bar"></div>
-              <div class="diff-grid" id="master-diff-grid"></div>
-              <div class="stats-strip" id="master-pass-stats"></div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- TAB 4: CUT -->
-      <section class="tab-panel" id="panel-cut" role="tabpanel" aria-labelledby="tab-btn-cut" hidden>
-        <div class="split-layout">
-          <form class="panel control-panel" id="cut-form">
-            <h3 class="panel-heading" data-i18n="cut.heading">VAD Silence Cutter &amp; Timeline Exporter</h3>
-            <p class="panel-sub" data-i18n="cut.subheading">RMS energy + zero-crossing rate VAD exporting OpenTimelineIO, CMX 3600 EDL, SRT/VTT subtitles, and trimmed WAV.</p>
-
-            <div class="form-grid">
-              <label class="field">
-                <span class="field-label"><span data-i18n="cut.thresh">Silence Threshold (dBFS)</span> <strong class="field-val" id="cut-thresh-readout">-40 dB</strong></span>
-                <input type="range" id="cut-thresh-range" min="-70" max="-5" step="1" value="-40">
-                <input type="number" id="cut-thresh-db" class="input-num" min="-90" max="0" step="0.5" value="-40">
-              </label>
-
-              <div class="field-row-2">
-                <label class="field">
-                  <span class="field-label" data-i18n="cut.minSilence">Min Silence (ms)</span>
-                  <input type="number" id="cut-min-silence" class="input-num" min="10" max="10000" step="10" value="400">
-                </label>
-
-                <label class="field">
-                  <span class="field-label" data-i18n="cut.minSpeech">Min Speech (ms)</span>
-                  <input type="number" id="cut-min-speech" class="input-num" min="10" max="10000" step="10" value="150">
-                </label>
-              </div>
-
-              <div class="field-row-2">
-                <label class="field">
-                  <span class="field-label" data-i18n="cut.padMs">Segment Pad (ms)</span>
-                  <input type="number" id="cut-pad-ms" class="input-num" min="0" max="2000" step="10" value="80">
-                </label>
-
-                <label class="field">
-                  <span class="field-label" data-i18n="cut.fps">Timeline FPS</span>
-                  <select id="cut-fps" class="input-select">
-                    <option value="23.976">23.976</option>
-                    <option value="24">24</option>
-                    <option value="25" selected>25</option>
-                    <option value="29.97">29.97</option>
-                    <option value="30">30</option>
-                    <option value="50">50</option>
-                    <option value="60">60</option>
-                  </select>
-                </label>
-              </div>
-            </div>
-
-            <div class="toggle-grid">
-              <label class="toggle-chip">
-                <input type="checkbox" id="cut-render-audio" checked>
-                <span data-i18n="cut.renderAudio">Render Trimmed WAV (atrim + concat)</span>
-              </label>
-            </div>
-
-            <div class="form-actions">
-              <button type="submit" class="btn btn-primary btn-block" id="btn-run-cut" disabled data-i18n="cut.runBtn">
-                Detect &amp; Cut Silences
-              </button>
-            </div>
-          </form>
-
-          <div class="panel results-panel" id="cut-results-panel">
-            <div class="results-header">
-              <h3 class="panel-heading" data-i18n="cut.resultsTitle">Speech Segments &amp; Timeline Exports</h3>
-              <div class="result-actions">
-                <button type="button" class="btn btn-secondary btn-sm" id="btn-cut-play-a" disabled data-i18n="common.playOriginal">Play Original (A)</button>
-                <button type="button" class="btn btn-secondary btn-sm" id="btn-cut-play-b" disabled data-i18n="cut.playCut">Play Trimmed (B)</button>
-              </div>
-            </div>
-
-            <div class="results-empty" id="cut-results-empty" data-i18n="cut.emptyResults">
-              Run Silence Detection to visualize kept speech vs cut silence on the waveform and download OTIO, EDL, SRT, VTT, and trimmed WAV files.
-            </div>
-
-            <div class="results-body hidden" id="cut-results-body">
-              <div class="kpi-strip" id="cut-kpi-strip"></div>
-
-              <div class="exports-bar" id="cut-exports-bar">
-                <a class="btn btn-secondary btn-sm disabled-link" id="export-link-otio" href="#" download aria-disabled="true">.OTIO</a>
-                <a class="btn btn-secondary btn-sm disabled-link" id="export-link-edl" href="#" download aria-disabled="true">.EDL</a>
-                <a class="btn btn-secondary btn-sm disabled-link" id="export-link-srt" href="#" download aria-disabled="true">.SRT</a>
-                <a class="btn btn-secondary btn-sm disabled-link" id="export-link-vtt" href="#" download aria-disabled="true">.VTT</a>
-                <a class="btn btn-primary btn-sm disabled-link" id="export-link-wav" href="#" download aria-disabled="true" data-i18n="cut.downloadWav">Trimmed .WAV</a>
-              </div>
-
-              <div class="table-scroll">
-                <table class="segments-table" id="cut-segments-table">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th data-i18n="cut.colStart">Start</th>
-                      <th data-i18n="cut.colEnd">End</th>
-                      <th data-i18n="cut.colDuration">Duration</th>
-                      <th data-i18n="cut.colRms">RMS (dBFS)</th>
-                      <th data-i18n="cut.colZcr">Mean ZCR</th>
-                    </tr>
-                  </thead>
-                  <tbody id="cut-segments-tbody"></tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-    </main>
+      <div class="statusbar-exports">
+        <span class="micro-lbl" data-i18n="statusbar.exports">Quick Export:</span>
+        <a class="daw-btn daw-btn-ghost daw-btn-xs disabled-link" id="sb-export-otio" href="#" download aria-disabled="true">.otio</a>
+        <a class="daw-btn daw-btn-ghost daw-btn-xs disabled-link" id="sb-export-edl" href="#" download aria-disabled="true">.edl</a>
+        <a class="daw-btn daw-btn-ghost daw-btn-xs disabled-link" id="sb-export-srt" href="#" download aria-disabled="true">.srt</a>
+        <a class="daw-btn daw-btn-ghost daw-btn-xs disabled-link" id="sb-export-vtt" href="#" download aria-disabled="true">.vtt</a>
+        <a class="daw-btn daw-btn-ghost daw-btn-xs disabled-link" id="sb-export-wav" href="#" download aria-disabled="true">.wav</a>
+      </div>
+    </footer>
   </div>
 
-  <script type="module" src="/app.js"></script>
+  <script type="module" src="./app.js"></script>
 </body>
 </html>

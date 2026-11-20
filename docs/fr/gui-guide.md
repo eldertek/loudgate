@@ -12,6 +12,9 @@
 # Lancement par defaut sur http://127.0.0.1:8742/ avec ouverture du navigateur
 loudgate ui
 
+# Mode fenetre application autonome (pywebview ou Edge/Chrome --app sans onglets navigateur)
+loudgate ui --desktop
+
 # Commande dediee pointant vers un dossier local sans ouvrir d'onglet navigateur
 loudgate-ui --workspace-dir ./episodes --port 8742 --no-open
 
@@ -27,6 +30,15 @@ loudgate ui --port 0
 | `--port` | `8742` | Port TCP local (`0` attribue automatiquement un port libre). |
 | `--workspace-dir` | `.` | Repertoire racine confine par `realpath` pour la selection de fichiers audio du workspace. |
 | `--no-open` | `false` | Ne pas ouvrir automatiquement le navigateur au demarrage. |
+| `--desktop` | `false` | Ouvre une fenetre desktop autonome (`pywebview` si present, sinon Chromium/Edge `--app`). |
+
+## Ergonomie Workstation & Modes
+
+- **Bandeau superieur Transport & Fichiers** : Boutons `Echantillon WAV`, `Ouvrir fichier`, selecteur Workspace, transport DAW (`Rembobiner`, `Lire A`, `Lire B`, `Stop`, `Boucle`) avec timecode SMPTE et selecteur de preset cible.
+- **Baie Centrale Double Couche Spectrogramme & Forme d'onde** : Spectrogramme STFT logarithmique (`40 Hz - 20 kHz`) au-dessus de la forme d'onde cyan (`Dual`, `Spec`, `Wave`), recherche au clic et ligne de seuil `THR` deplacable a la souris dans l'onglet 4.
+- **Pont de Vu-metres Verticaux EBU R128** : Colonnes LED segmentees en temps reel (`M`, `S`, `I`, `TP`) sur echelle `-60` a `0 dB`, temoin `CLIP OK` / `CLIP OVER` et valeurs numeriques LRA/RSB/DC.
+- **Barre d'etat DAW inferieure** : Frequence d'echantillonnage, canaux, duree, gain RSB et boutons d'export rapide `.otio`, `.edl`, `.srt`, `.vtt`, `.wav`.
+- **Mode Demo Navigateur Statique** : Lorsque les fichiers statiques (`src/loudgate/ui/static/`) sont heberges sans serveur Python (ex. `https://eclipse-technology.eu/demos/loudgate/`), l'interface bascule automatiquement vers le moteur client WebAudio/JS (`BROWSER WEBAUDIO DEMO`).
 
 ## Modele de securite et confidentialite
 
