@@ -33,8 +33,10 @@ cd loudgate
 pip install -e ".[dev]"
 ```
 
-Launch the local Studio GUI immediately:
+Launch the local Studio GUI immediately (or try the static browser demo at [https://eclipse-technology.eu/demos/loudgate/](https://eclipse-technology.eu/demos/loudgate/)):
 
 ```bash
 loudgate ui
+# standalone desktop window mode:
+loudgate ui --desktop
 ```

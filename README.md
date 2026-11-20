@@ -4,6 +4,8 @@ Open-source, clean-room broadcast audio post-production engine in Python + FFmpe
 
 Everything runs locally on CPU with zero cloud uploads, zero model weight downloads, and zero subscription paywalls.
 
+Live browser demo: [https://eclipse-technology.eu/demos/loudgate/](https://eclipse-technology.eu/demos/loudgate/)
+
 ![loudgate Studio GUI](docs/assets/gui-desktop-probe.png)
 
 ## Documentation
@@ -43,11 +45,12 @@ Launch the local mastering & spectral workstation (binds strictly to `127.0.0.1`
 loudgate ui
 # standalone desktop window mode (pywebview or Edge/Chrome --app):
 loudgate ui --desktop
-# or standalone binary:
+# or standalone entrypoint:
+loudgate-ui --desktop
 loudgate-ui --workspace-dir ./episodes --no-open
 ```
 
-Inside the DAW console (`EN` / `FR` language toggle built in, with automatic WebAudio demo fallback when hosted statically):
+Inside the DAW console (`EN` / `FR` language toggle built in, with automatic WebAudio demo fallback when hosted statically at [https://eclipse-technology.eu/demos/loudgate/](https://eclipse-technology.eu/demos/loudgate/)):
 1. Click **Sample WAV** (or open/drop any local file or select from `--workspace-dir`).
 2. Inspect the **Dual-Layer STFT Spectrogram + Waveform** and **Vertical EBU R128 LED Meter Bridge** (`M`, `S`, `I`, `TP`, `LRA`, `SNR`, `DC offset`, `CLIP` LED).
 3. Clean 38 Hz rumble, clicks, hiss, and sibilance in **Spectral Denoise**, audition **Play A vs Play B**, or click **Use as Source**.

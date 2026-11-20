@@ -38,7 +38,7 @@ loudgate ui --port 0
 - **Baie Centrale Double Couche Spectrogramme & Forme d'onde** : Spectrogramme STFT logarithmique (`40 Hz - 20 kHz`) au-dessus de la forme d'onde cyan (`Dual`, `Spec`, `Wave`), recherche au clic et ligne de seuil `THR` deplacable a la souris dans l'onglet 4.
 - **Pont de Vu-metres Verticaux EBU R128** : Colonnes LED segmentees en temps reel (`M`, `S`, `I`, `TP`) sur echelle `-60` a `0 dB`, temoin `CLIP OK` / `CLIP OVER` et valeurs numeriques LRA/RSB/DC.
 - **Barre d'etat DAW inferieure** : Frequence d'echantillonnage, canaux, duree, gain RSB et boutons d'export rapide `.otio`, `.edl`, `.srt`, `.vtt`, `.wav`.
-- **Mode Demo Navigateur Statique** : Lorsque les fichiers statiques (`src/loudgate/ui/static/`) sont heberges sans serveur Python (ex. `https://eclipse-technology.eu/demos/loudgate/`), l'interface bascule automatiquement vers le moteur client WebAudio/JS (`BROWSER WEBAUDIO DEMO`).
+- **Mode Demo Navigateur Statique** : Lorsque les fichiers statiques (`src/loudgate/ui/static/`) sont heberges sans serveur Python (ex. [https://eclipse-technology.eu/demos/loudgate/](https://eclipse-technology.eu/demos/loudgate/)), l'interface bascule automatiquement vers le moteur client WebAudio/JS (`BROWSER WEBAUDIO DEMO`).
 
 ## Modele de securite et confidentialite
 

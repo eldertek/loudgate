@@ -33,8 +33,10 @@ cd loudgate
 pip install -e ".[dev]"
 ```
 
-Lancer l'interface Studio locale :
+Lancer l'interface Studio locale (ou tester la demo statique en ligne sur [https://eclipse-technology.eu/demos/loudgate/](https://eclipse-technology.eu/demos/loudgate/)) :
 
 ```bash
 loudgate ui
+# mode fenetre desktop autonome :
+loudgate ui --desktop
 ```

@@ -38,7 +38,7 @@ loudgate ui --port 0
 - **Central Dual-Layer Spectrogram & Waveform Bay**: Displays log-frequency STFT spectrogram (`40 Hz - 20 kHz`) over cyan peak/RMS waveform (`Dual`, `Spec`, or `Wave` views). Click to seek or drag the amber `THR` threshold line directly on the waveform in Tab 4.
 - **Right Docked Vertical EBU R128 Meter Bridge**: Live segmented LED columns for Momentary (`M`), Short-Term (`S`), Integrated (`I`), and True Peak (`TP`) with `-60` to `0 dB` scale, `CLIP OK` / `CLIP OVER` latching indicator, and numeric LRA/SNR/DC readouts.
 - **Bottom DAW Status Bar**: Shows sample rate, channels, duration, SNR delta, and one-click `.otio`, `.edl`, `.srt`, `.vtt`, and `.wav` export buttons.
-- **Static Browser Demo Mode**: When static assets (`src/loudgate/ui/static/`) are served directly without a local Python backend (such as `https://eclipse-technology.eu/demos/loudgate/`), the UI automatically activates a pure WebAudio/JavaScript DSP engine (`BROWSER WEBAUDIO DEMO`).
+- **Static Browser Demo Mode**: When static assets (`src/loudgate/ui/static/`) are served directly without a local Python backend (such as [https://eclipse-technology.eu/demos/loudgate/](https://eclipse-technology.eu/demos/loudgate/)), the UI automatically activates a pure WebAudio/JavaScript DSP engine (`BROWSER WEBAUDIO DEMO`).
 
 ## Security & Privacy Model
 
