@@ -33,3 +33,9 @@ jobs:
 
       - name: Run pytest
         run: pytest -v
+
+      - name: Smoke check CLI entry points
+        run: |
+          loudgate --help
+          loudgate ui --help
+          loudgate-ui --help

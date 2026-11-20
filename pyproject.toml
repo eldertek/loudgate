@@ -51,9 +51,13 @@ dev = [
 
 [project.scripts]
 loudgate = "loudgate.cli:main"
+loudgate-ui = "loudgate.ui:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+loudgate = ["ui/static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

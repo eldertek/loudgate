@@ -13,6 +13,7 @@ from .cut import CutConfig, cut_silences
 from .master import MASTER_PRESETS, MasterConfig, master_file
 from .mcp_server import serve_stdio
 from .probe import probe_file
+from .ui.server import DEFAULT_HOST, DEFAULT_PORT, serve_ui
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -67,6 +68,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     # mcp
     sub.add_parser("mcp", help="Run loudgate MCP stdio server.")
+
+    # ui
+    p_ui = sub.add_parser("ui", help="Launch local broadcast audio studio GUI (127.0.0.1 loopback).")
+    p_ui.add_argument("--host", default=DEFAULT_HOST, help="Loopback bind host (default: 127.0.0.1).")
+    p_ui.add_argument("--port", type=int, default=DEFAULT_PORT, help="Bind port (default: 8742; 0 for auto).")
+    p_ui.add_argument("--workspace-dir", default=".", help="Workspace directory for local audio file selection.")
+    p_ui.add_argument("--no-open", action="store_true", help="Do not open browser automatically.")
     return parser
 
 
@@ -76,6 +84,19 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "mcp":
         serve_stdio()
+        return 0
+
+    if args.command == "ui":
+        try:
+            serve_ui(
+                host=args.host,
+                port=args.port,
+                workspace_dir=args.workspace_dir,
+                open_browser=not args.no_open,
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
+            return 2
         return 0
 
     if args.command == "probe":

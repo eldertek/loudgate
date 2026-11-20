@@ -1,14 +1,22 @@
 # loudgate
 
-Open-source, clean-room broadcast audio post-production engine in Python + FFmpeg.
+Open-source, clean-room broadcast audio post-production engine in Python + FFmpeg, featuring a local loopback **Studio GUI (`loudgate ui`)**, deterministic CLI, Python API, and `stdio` MCP server.
 
-`loudgate` provides deterministic loudness auditing, STFT spectral cleanup, two-pass EBU R128 mastering, silence cutting with NLE timeline/subtitle export, and a `stdio` MCP server. Everything runs locally on CPU with no cloud uploads, no model weight downloads, and no subscription paywalls.
+Everything runs locally on CPU with zero cloud uploads, zero model weight downloads, and zero subscription paywalls.
+
+![loudgate Studio GUI](docs/assets/gui-desktop-probe.png)
+
+## Documentation
+
+- **English**: [Overview](docs/index.md) | [Studio GUI Guide](docs/gui-guide.md) | [CLI & Python Reference](docs/cli-reference.md) | [MCP Setup](docs/mcp-setup.md)
+- **Francais**: [Presentation](docs/fr/index.md) | [Guide Interface Studio](docs/fr/gui-guide.md) | [Reference CLI & Python](docs/fr/cli-reference.md) | [Configuration MCP](docs/fr/mcp-setup.md)
 
 ## Why loudgate
 
 | Workflow | Proprietary paywalls | loudgate (MIT) |
 | :--- | :--- | :--- |
-| Spectral denoise, de-click, HPF | Desktop GUI suites ($399+) | Deterministic STFT WOLA + zero-phase Butterworth SOS |
+| Visual Audio Console & A/B Audition | Desktop GUI suites ($399+) | Local loopback `loudgate ui` / `loudgate-ui` with Canvas waveform & EBU R128 meters |
+| Spectral denoise, de-click, HPF | Per-plugin licenses | Deterministic STFT WOLA + zero-phase Butterworth SOS |
 | Loudness audit & mastering | Monthly NLE add-ons ($22.99/mo) | Two-pass FFmpeg `loudnorm` + 4x oversampled true-peak ceiling |
 | Silence removal + NLE cut export | Per-seat podcast editors ($24-$65/mo) | Energy/ZCR VAD + `.otio` / CMX 3600 `.edl` / `.srt` / `.vtt` / WAV |
 | Automation & editor integration | Closed plugins | Scriptable CLI, Python API, and `stdio` MCP server |
@@ -26,6 +34,23 @@ git clone https://github.com/eldertek/loudgate.git
 cd loudgate
 pip install -e ".[dev]"
 ```
+
+## Quick Start: Studio GUI (`loudgate ui`)
+
+Launch the local broadcast console (binds strictly to `127.0.0.1`, default port `8742`):
+
+```bash
+loudgate ui
+# or standalone command:
+loudgate-ui --workspace-dir ./episodes --no-open
+```
+
+Inside the browser Studio (`EN` / `FR` language toggle built in):
+1. Click **Load Built-in Broadcast Speech+Silence Sample WAV** (or drop/upload any local file or select from `--workspace-dir`).
+2. Inspect the interactive Canvas waveform and **EBU R128 Probe** meters (`LUFS`, `LRA`, `True Peak`, `4x OS Peak`, `SNR`, `DC offset`).
+3. Clean rumble, clicks, hiss, and sibilance in **STFT Spectral Denoiser**, audition **A vs B**, or click **Use as Active Source**.
+4. Normalize in **Broadcast Mastering** (`podcast -14`, `mobile -16`, `broadcast -23 LUFS`, etc. loaded from `MASTER_PRESETS`).
+5. Segment speech vs silence in **Silence Cutter & Timeline** with green/red waveform markers and download `.otio`, `.edl`, `.srt`, `.vtt`, and trimmed `.wav`.
 
 ## Quick Start (CLI)
 
@@ -125,12 +150,13 @@ cuts = cut_silences("master.wav", "exports/")
 pytest -v
 ```
 
-The test suite verifies DSP invariants on synthetic signals (sine waves, logarithmic chirps, AWGN noise, DC offsets, clipped bursts, and inter-sample peaks):
+The test suite verifies DSP invariants and UI integration:
 - Parseval energy conservation across the tight-frame STFT/ISTFT (`relative error < 1e-12`)
 - Zero-phase high-pass attenuation and impulse click repair
 - Real FFmpeg `ebur128` verification before and after two-pass `loudnorm` at `-14`, `-16`, and `-23 LUFS` with `true_peak_dbtp <= -1.0`
 - VAD/silence segmentation, valid OTIO/EDL/SRT/VTT generation, and FFmpeg `atrim` rendering
 - MCP JSON-RPC 2.0 `stdio` protocol round-trips
+- Studio UI loopback HTTP endpoints, CSP & path traversal rejections, byte-range streaming, and full DSP round-trips
 
 ## Commercial Support & Custom Pipelines
 
