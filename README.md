@@ -2,7 +2,7 @@
 
 Open-source, clean-room broadcast audio post-production engine in Python + FFmpeg.
 
-`loudgate` gives audio editors, podcast producers, and post-production pipelines deterministic tools for loudness auditing, STFT spectral cleanup, EBU R128 mastering, silence cutting with timeline/subtitle export, and MCP integration. No cloud upload, no GPU weight downloads, and no subscription paywalls.
+`loudgate` provides deterministic loudness auditing, STFT spectral cleanup, two-pass EBU R128 mastering, silence cutting with NLE timeline/subtitle export, and a `stdio` MCP server. Everything runs locally on CPU with no cloud uploads, no model weight downloads, and no subscription paywalls.
 
 ## Why loudgate
 
@@ -11,12 +11,12 @@ Open-source, clean-room broadcast audio post-production engine in Python + FFmpe
 | Spectral denoise, de-click, HPF | Desktop GUI suites ($399+) | Deterministic STFT WOLA + zero-phase Butterworth SOS |
 | Loudness audit & mastering | Monthly NLE add-ons ($22.99/mo) | Two-pass FFmpeg `loudnorm` + 4x oversampled true-peak ceiling |
 | Silence removal + NLE cut export | Per-seat podcast editors ($24-$65/mo) | Energy/ZCR VAD + `.otio` / CMX 3600 `.edl` / `.srt` / `.vtt` / WAV |
-| Automation & editor integration | Closed plugins | Scriptable CLI, Python API, and stdio MCP server |
+| Automation & editor integration | Closed plugins | Scriptable CLI, Python API, and `stdio` MCP server |
 
 ## Requirements
 
 - Python 3.10+
-- FFmpeg and FFprobe available on `PATH`
+- `ffmpeg` and `ffprobe` on `PATH`
 - Python packages: `numpy`, `scipy`, `soundfile`
 
 ## Installation
@@ -72,12 +72,12 @@ loudgate cut episode_podcast.wav ./cuts/ --thresh-db -40 --min-silence-ms 400 --
 ```
 
 Outputs into `./cuts/`:
-- `episode_podcast.otio` (OpenTimelineIO JSON timeline ready for DaVinci Resolve / Premiere workflows)
+- `episode_podcast.otio` (OpenTimelineIO JSON timeline for DaVinci Resolve / Premiere workflows)
 - `episode_podcast.edl` (CMX 3600 EDL)
 - `episode_podcast.srt` and `episode_podcast.vtt` (cue timestamps aligned to the trimmed timeline)
 - `episode_podcast_cut.wav` (rendered via FFmpeg `atrim` + micro-fades + `concat`)
 
-### 5. Run as an MCP stdio server
+### 5. Run as an MCP `stdio` server
 
 ```bash
 loudgate mcp
@@ -113,18 +113,28 @@ master = master_file("clean.wav", "master.wav", MasterConfig(preset="podcast"))
 cuts = cut_silences("master.wav", "exports/")
 ```
 
+## v0.1 Scope and Known Limitations
+
+- The STFT Wiener denoiser targets stationary background noise (room floor, fan hiss, hum) rather than heavy room dereverberation or overlapping-speaker separation.
+- Silence cutting uses RMS energy + zero-crossing rate VAD; it does not perform ASR transcription or speaker diarization.
+- Mastering and container transcoding rely on a local `ffmpeg` / `ffprobe` binary installed on `PATH`.
+
 ## Running Tests
 
 ```bash
 pytest -v
 ```
 
-The test suite verifies DSP invariants on synthetic signals (pure sine waves, logarithmic chirps, AWGN noise, DC offsets, clipped bursts, and inter-sample peaks):
+The test suite verifies DSP invariants on synthetic signals (sine waves, logarithmic chirps, AWGN noise, DC offsets, clipped bursts, and inter-sample peaks):
 - Parseval energy conservation across the tight-frame STFT/ISTFT (`relative error < 1e-12`)
 - Zero-phase high-pass attenuation and impulse click repair
 - Real FFmpeg `ebur128` verification before and after two-pass `loudnorm` at `-14`, `-16`, and `-23 LUFS` with `true_peak_dbtp <= -1.0`
-- VAD/silence segmentation accuracy, valid OTIO/EDL/SRT/VTT generation, and FFmpeg `atrim` rendering
-- MCP JSON-RPC 2.0 stdio protocol round-trips
+- VAD/silence segmentation, valid OTIO/EDL/SRT/VTT generation, and FFmpeg `atrim` rendering
+- MCP JSON-RPC 2.0 `stdio` protocol round-trips
+
+## Commercial Support & Custom Pipelines
+
+Need custom audio post-production automation, broadcast QA integration, or dedicated maintenance? See [Eclipse Technology Open Source Pro](https://eclipse-technology.eu/open-source-pro.html).
 
 ## License
 
